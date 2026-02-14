@@ -1,3 +1,6 @@
+![Build](https://img.shields.io/badge/build-passing-brightgreen)
+![Version](https://img.shields.io/badge/version-0.9.8-blue)
+
 # Corvo7 🐦
 
 Welcome to this project!
@@ -29,7 +32,7 @@ Let's start with variable declarations.
 
 #### Variables
 
-**Corvo7** has 2 types of *variables*:
+**Corvo7** Has 2 types of *variables*:
 
 - ```const``` → Immutable by definition
 
@@ -49,14 +52,14 @@ var int variable1 = 10;
 const int variable2 = 28;
 ```
 
-> Tip: If you don’t annotate a type, Corvo7 will infer it automatically. You can also explicitly define types like 19u for u8.
+> 💡 Tip: If you don’t annotate a type, Corvo7 will infer it automatically. You can also explicitly define types like 19u for u8.
 
 
 
 
 ---
 
-Functions
+### Functions
 
 Functions are declared with fun:
 
@@ -68,7 +71,7 @@ fun int add(int a, int b) {
 
 ---
 
-Loops
+### Loops
 
 While loops are simple and safe:
 
@@ -76,7 +79,7 @@ While loops are simple and safe:
 var int i = 0;
 var int sum = 0;
 
-while(:=i < 10){
+while(i < 10){
     sum += i;
     i += 1;
 }
@@ -90,21 +93,21 @@ print(sum);
 
 ---
 
-Advantages
+### Advantages
 
-Compiled & fast → executes almost instantly
+- Compiled & fast → executes almost instantly
 
-Strong typing → reduces runtime errors
+- Strong typing → reduces runtime errors
 
-No manual memory management → Rust handles everything in the compiler
+- No manual memory management → Rust handles everything in the compiler
 
-Simple syntax → easy to read and write
+- Simple syntax → easy to read and write
 
 
 
 ---
 
-Future Features
+### Future Features
 
 Classes with single inheritance
 
@@ -114,3 +117,31 @@ More standard library features
 
 --- 
 
+## 🚀 Requirements
+
+Before installing it, you need to have:
+
+- [Rust](https://www.rust-lang.org/tools/install) installed
+- [Git](https://git-scm.com/) installed
+
+---
+
+## 📥 installation 
+
+1️⃣ *Clone* the *repository*:
+
+```bash
+git clone https://github.com/leozin17892-rskotpy/corvo7.git
+cd corvo7
+```
+
+2️⃣ *Compile* the compiler:
+```bash
+cargo build --release
+```
+
+3️⃣ Test if it's working:
+```bash
+./target/release/corvo7 --version
+```
+> Windows: use ```corvo7.exe``` instead of ```./corvo7```
