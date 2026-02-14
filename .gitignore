@@ -1,16 +1,7 @@
-# Build files
-build/
-.gradle/
-*.class
-*.jar
-*.apk
-
-# IDE files
-.idea/
-.vscode/
-*.iml
-
-# OS files
-.DS_Store
-Thumbs.db
+# Binários e outputs
 BinOp::*
+a.out
+output/
+*.c7
+*.c
+target/
