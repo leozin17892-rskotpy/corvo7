@@ -2,6 +2,13 @@
 name = "corvo7"
 version = "0.1.0"
 edition = "2021"
+description = "A toy programming language compiler written in Rust"
+license = "MIT"
+repository = "https://github.com/leozin17892-rskotpy/corvo7"
+readme = "README.md"
+authors = ["Léo"]
+keywords = ["compiler", "language", "parser", "toy-language"]
+categories = ["compilers"]
 
 [[bin]]
 name = "corvo7c"

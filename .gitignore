@@ -1,7 +1,10 @@
 # Binários e outputs
 BinOp::*
+.si.json
 a.out
-output/
+codigo
+output
 *.c7
 *.c
 target/
+esboco.txt
