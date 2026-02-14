@@ -80,7 +80,7 @@ while(:=i < 10){
     sum += i;
     i += 1;
 }
-print(sum)
+print(sum);
 ```
 
 > Corvo7 is super fast for loops and numeric operations, even faster than Python for similar code.
