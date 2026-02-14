@@ -17,12 +17,14 @@ classes:
     	cmhr(<nome>){
         	this.nome = nome
         }
+        // staticmethod void seila() {...}
         <statico?><tipo?><nome>(<tipo?><nome>){
         	usando parametros do construtor:
             this.nome // se o parametro tem o mesmo nome que a parâmetro da classe
             nome // se o parametro não tem o mesmo nome que o parâmetro da classe
         }
-        <clsmethod?><tipo?><nome>(<tipo?><parâmetro>){
+        // classmethod void seila(...){...}
+        <classmethod?><tipo?><nome>(<tipo?><parâmetro>){
         	return classe(<parâmetro>)
         }
         

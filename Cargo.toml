@@ -1,9 +1,10 @@
 [package]
-name = "corvo7_compiler"
+name = "corvo7"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "corvo7"
-path = "src/main.rs"
+name = "corvo7c"
+path = "src/bin/corvo7-compiler-cli.rs"
 [dependencies]
+clap = { version = "4.4", features = ["derive"]}

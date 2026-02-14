@@ -1,6 +1,6 @@
 {
   "plugin": "org.smartide.plugin.rust",
-  "run": "cargo run -- codigo.c7",
+  "run": "cargo build",
   "gui": false,
   "intelligence": {
     ".json": {
@@ -18,6 +18,10 @@
     ".c": {
       "enabled": true,
       "run": "clangd"
+    },
+    ".md": {
+      "enabled": true,
+      "run": "marksman server"
     }
   }
 }

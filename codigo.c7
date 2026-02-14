@@ -1,21 +1,10 @@
-fun int add(int a, int b){
-	return a + b;
-}
-
 fun int main() {
-	var int i = 0;
-    var int money = 0;
-    var trabalhou = true;
-	while(:=:trabalhou){
-    	print(i);
-        print(money);
+    var int soma = 0;
+    var int i = 1;
+    while(i <= 1000000){
+        soma += i;
         i += 1;
-        money += 20;
-        if(i > 6){
-        	trabalhou = false;
-        }
     }
+    print(soma);
     return 0;
 }
-
-
