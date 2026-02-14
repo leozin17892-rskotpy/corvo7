@@ -3,6 +3,9 @@ BinOp::*
 .si.json
 a.out
 codigo
+lexer,
+main,
+,
 output
 *.c7
 *.c
