@@ -1,9 +1,0 @@
-/data/data/org.smartide.code/files/home/projects/corvo7/target/release/deps/clap-0f7d7286a2217ce8.d: /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clap-4.5.58/src/lib.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clap-4.5.58/src/../examples/demo.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clap-4.5.58/src/../examples/demo.md
-
-/data/data/org.smartide.code/files/home/projects/corvo7/target/release/deps/libclap-0f7d7286a2217ce8.rlib: /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clap-4.5.58/src/lib.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clap-4.5.58/src/../examples/demo.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clap-4.5.58/src/../examples/demo.md
-
-/data/data/org.smartide.code/files/home/projects/corvo7/target/release/deps/libclap-0f7d7286a2217ce8.rmeta: /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clap-4.5.58/src/lib.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clap-4.5.58/src/../examples/demo.rs /data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clap-4.5.58/src/../examples/demo.md
-
-/data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clap-4.5.58/src/lib.rs:
-/data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clap-4.5.58/src/../examples/demo.rs:
-/data/data/org.smartide.code/files/home/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clap-4.5.58/src/../examples/demo.md:
