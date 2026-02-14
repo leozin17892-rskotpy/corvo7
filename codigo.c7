@@ -1,0 +1,21 @@
+fun int add(int a, int b){
+	return a + b;
+}
+
+fun int main() {
+	var int i = 0;
+    var int money = 0;
+    var trabalhou = true;
+	while(:=:trabalhou){
+    	print(i);
+        print(money);
+        i += 1;
+        money += 20;
+        if(i > 6){
+        	trabalhou = false;
+        }
+    }
+    return 0;
+}
+
+
