@@ -73,12 +73,12 @@ Loops
 While loops are simple and safe:
 
 ```typescript
-var int i = 0
-var int sum = 0
+var int i = 0;
+var int sum = 0;
 
 while(:=i < 10){
-    sum += i
-    i += 1
+    sum += i;
+    i += 1;
 }
 print(sum)
 ```
