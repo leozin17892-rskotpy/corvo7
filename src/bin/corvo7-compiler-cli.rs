@@ -39,6 +39,7 @@ fn main() {
     let mut parser = CParser::new(tokens);
     let stmts = parser.parse().unwrap_or_exit();
 
+
     // Semantic Analysis
     let mut analyzer = SemanticAnalyzer::new();
     analyzer.analyze(&stmts).unwrap_or_exit();

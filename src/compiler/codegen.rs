@@ -113,6 +113,12 @@ impl Codegen {
             Stmt::Return(e) => format!("return {};", self.gen_expr(e)),
             Stmt::ForLoop(u) => {
                 let start_code = self.gen_expr(&u.start);
+                let step_code = if let Some(step) = &u.step{
+                   	 self.gen_expr(step)
+   				 } else {
+    			 	   "1".to_string() // step implícito
+ 		 		  };
+                let cmp = if step_code.starts_with("-") { ">=" } else { "<=" };
                 let end_code = self.gen_expr(&u.end);
                 let mut body_code = String::new();
                 for s in &u.body{
@@ -120,12 +126,14 @@ impl Codegen {
                     body_code.push('\n');
                 }
                 format!(
-                    "for (int {} = {}; {} < {}; {}++)\n    {{\n{}\n    }}",
+                    "for (int {} = {}; {} {} {}; {} += {})\n    {{\n{}\n    }}",
                     u.var,
                     start_code,
                     u.var,
+                    cmp,
                     end_code,
                     u.var,
+                    step_code,
                     self.indent_with(8, &body_code),
                 )
             }

@@ -105,6 +105,7 @@ pub struct FuncDecl{
 pub struct ForLoop{
     pub var: String,
     pub start: Expr,
+    pub step: Option<Expr>,
     pub end: Expr,
     pub body: Vec<Stmt>
 }
@@ -441,22 +442,32 @@ impl Parser{
         }))
     }
     fn parse_for(&mut self) -> Result<Stmt, ParserError> {
-        self.expect(TokenKind::For)?;
-        let var = self.expect_ident()?;
-        self.expect(TokenKind::In)?;
-        let start = self.parse_expr()?;
-        self.expect(TokenKind::Range)?;
-        let end = self.parse_expr()?;
-        self.expect(TokenKind::LeftBrace)?;
-        let body = self.parse_block()?;
-        
-        Ok(Stmt::ForLoop(ForLoop{
-            var,
-            start,
-            end,
-            body
-        }))
-    }
+ 	   self.expect(TokenKind::For)?;
+  	  let var = self.expect_ident()?;
+   	 self.expect(TokenKind::In)?;
+
+    	let start = self.parse_expr()?; // Consome o 0
+   	 self.expect(TokenKind::Range)?; // Consome o primeiro ..
+
+   	 let next_val = self.parse_expr()?; // Consome o 2
+    
+   	 let mut step = None;
+  	  let end;
+
+  	  if let TokenKind::Range = self.peek().kind {
+      	  self.advance(); 
+     	   step = Some(next_val);
+      	  end = self.parse_expr()?; 
+   	 } else {
+      	  end = next_val;
+   	 }
+
+   	 self.expect(TokenKind::LeftBrace)?;
+    	let body = self.parse_block()?;
+
+   	 Ok(Stmt::ForLoop(ForLoop { var, start, step, end, body }))
+	}
+
     
     fn parse_type(&mut self) -> Result<Type, ParserError>{
         match &self.peek().kind{

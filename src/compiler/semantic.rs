@@ -319,6 +319,12 @@ impl SemanticAnalyzer {
     fn check_for(&mut self, for_loop: &ForLoop) {
         // Start e end devem ser inteiros
         let start_type = self.check_expr(&for_loop.start);
+        let step_type;
+        if let Some(step) = &for_loop.step{
+            step_type = Some(self.check_expr(&for_loop.step.clone().unwrap()));
+        }else{
+            step_type = None
+        }
         let end_type = self.check_expr(&for_loop.end);
 
         if !self.is_integer_type(&start_type) {
@@ -327,6 +333,21 @@ impl SemanticAnalyzer {
                 format!("For loop start must be integer, found {:?}", start_type)
             );
         }
+        	if step_type.is_some(){
+      		  if !self.is_integer_type(&step_type.clone().unwrap()){
+       	   	  self.error(
+        	        SemanticErrorKind::TypeMismatch,
+               	 format!("For loop step must be integer, found {:?}", step_type)
+           	 	);
+        		}
+            }else{
+                if !self.is_integer_type(&step_type.clone().unwrap_or(Type::Int)){
+                    self.error(
+        	        SemanticErrorKind::TypeMismatch,
+               	 format!("For loop step must be integer, found {:?}", step_type)
+           	 	);
+                }
+            }
 
         if !self.is_integer_type(&end_type) {
             self.error(
