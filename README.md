@@ -1,5 +1,5 @@
 ![Build](https://img.shields.io/badge/build-passing-brightgreen)
-![Version](https://img.shields.io/badge/version-0.9.8-blue)
+![Version](https://img.shields.io/badge/version-0.1.0-black)
 
 # Corvo7 🐦
 
