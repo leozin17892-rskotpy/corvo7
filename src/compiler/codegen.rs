@@ -33,19 +33,37 @@ impl Codegen {
                         Expr::StringLiteral(_) => "%s",
                         Expr::IntLiteral(_) | Expr::UIntLiteral(_) => "%llu",
                         Expr::BoolLiteral(_) => "%s", // Vamos converter true/false para string
-                        Expr::BinaryOp { .. } => "%lld", // Resultado de conta geralmente é int
+                        Expr::BinaryOp { op, .. } => {
+  						  match op {
+      						  BinOp::Greater |
+      						  BinOp::GreaterEqual |
+      						  BinOp::Less |
+      						  BinOp::LessEqual |
+       						 BinOp::DoubleEqual |
+       						 BinOp::IndentityOp => "%s",
+        						_ => "%lld",
+    						}
+						}
                         Expr::Ident(_) => "%d",
-                        Expr::Vec {..} => "%p", // Se for variável, assume int por enquanto
+                        Expr::Vec {..} => "%p",
                         _ => "%d",
                     };
                     formats.push_str(fmt);
                     formats.push(' ');
-                    if let Expr::BoolLiteral(_) = expr {
-                        args.push(format!("({}) ? \"true\" : \"false\"", val));
-                    } else {
-                        args.push(val);
-                    }
-                }
+                    if matches!(expr,
+    				Expr::BoolLiteral(_)
+   				 | Expr::BinaryOp { op: BinOp::Greater, .. }
+   				 | Expr::BinaryOp { op: BinOp::GreaterEqual, .. }
+ 			 	  | Expr::BinaryOp { op: BinOp::Less, .. }
+ 				   | Expr::BinaryOp { op: BinOp::LessEqual, .. }
+    				| Expr::BinaryOp { op: BinOp::DoubleEqual, .. }
+    				| Expr::BinaryOp { op: BinOp::IndentityOp, .. }
+		) {
+    		args.push(format!("({}) ? \"true\" : \"false\"", val));
+		} else {
+            args.push(val);
+        }
+         }
                 if args.is_empty() {
                  	format!("printf(\"\\n\");")
                 } else {

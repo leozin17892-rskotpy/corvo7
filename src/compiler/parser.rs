@@ -141,6 +141,7 @@ pub enum BinOp {
     Percent,
     DoubleEqual,
     IndentityOp,
+    NotEqual,
     LessEqual,
     Less,
     Greater,
@@ -534,7 +535,7 @@ impl Parser{
             TokenKind::Vec => {
   			  self.advance();
                 self.expect(TokenKind::Less)?;
-   			  let inner_type = self.parse_type()?;
+   			 let inner_type = self.parse_type()?;
                 self.expect(TokenKind::Comma)?;
                 
   			  let size = match self.peek().kind {
@@ -576,40 +577,76 @@ impl Parser{
    	     negated,
  	   })
 	}
-    fn parse_expr(&mut self) -> Result<Expr, ParserError>{
-  	  let mut expr = self.parse_term()?;
-
-  	  while matches!(
-    	    self.peek().kind,
-       		 TokenKind::Plus | 
-      		  TokenKind::Minus | 
-    		    TokenKind::DoubleEqual | 
-      		  TokenKind::GreaterEqual | 
-      		  TokenKind::LessEqual | 
-        		TokenKind::Greater | 
-      		  TokenKind::Less | TokenKind::Percent | TokenKind::CompoundAdd | TokenKind::CompoundSub | TokenKind::CompoundMul | TokenKind::CompoundDiv | TokenKind::Indentity
-   	 ) {
-        let op = match self.peek().kind {
-            TokenKind::Plus => BinOp::Add,
-            TokenKind::Minus => BinOp::Sub,
-            TokenKind::DoubleEqual => BinOp::DoubleEqual,
-            TokenKind::GreaterEqual => BinOp::GreaterEqual,
-            TokenKind::LessEqual => BinOp::LessEqual,
-            TokenKind::Greater => BinOp::Greater,
-            TokenKind::Less => BinOp::Less,
-            TokenKind::Percent => BinOp::Percent,
-            TokenKind::Indentity => BinOp::IndentityOp,
-            _ => break,
-        };
-        self.advance();
-        let right = self.parse_term()?;
-        expr = Expr::BinaryOp {
-            left: Box::new(expr),
-            op,
-            right: Box::new(right),
-        };
-    	}
+    fn parse_equality(&mut self) -> Result<Expr, ParserError>{
+        let mut expr = self.parse_comparison()?;
+        while matches!(self.peek().kind, 
+            TokenKind::NotEqual | TokenKind::DoubleEqual | TokenKind::Indentity 
+        ){
+            let op = match self.peek().kind {
+                TokenKind::DoubleEqual => BinOp::DoubleEqual,
+                TokenKind::NotEqual => BinOp::NotEqual,
+                TokenKind::Indentity => BinOp::IndentityOp,
+                _ => break
+            };
+            self.advance();
+            let right = self.parse_comparison()?;
+        	expr = Expr::BinaryOp { 
+          	  left: Box::new(expr), 
+          	  op, 
+           	 right: Box::new(right)
+        	};
+        }
+        Ok(expr)   
+    }
+    fn parse_comparison(&mut self) -> Result<Expr, ParserError>{
+        let mut expr = self.parse_addition()?;
+        while matches!(self.peek().kind, 
+            TokenKind::GreaterEqual | 
+            TokenKind::LessEqual | TokenKind::Greater | 
+        	TokenKind::Less 
+        ){
+            let op = match self.peek().kind {
+                TokenKind::GreaterEqual => BinOp::GreaterEqual,
+                TokenKind::Greater => BinOp::Greater,
+                TokenKind::LessEqual => BinOp::LessEqual,
+                TokenKind::Less => BinOp::Less,
+                
+                _ => break
+            };
+            self.advance();
+            let right = self.parse_addition()?;
+        	expr = Expr::BinaryOp {
+           	 left: Box::new(expr),
+          	  op,
+       	     right: Box::new(right),
+      	  };
+        }
    	 Ok(expr)
+    }
+    fn parse_addition(&mut self) -> Result<Expr, ParserError>{
+        let mut expr = self.parse_term()?;
+        while matches!(self.peek().kind, 
+            TokenKind::Plus | 
+        	TokenKind::Minus
+        ){
+            let op = match self.peek().kind {
+                TokenKind::Plus => BinOp::Add,
+                TokenKind::Minus => BinOp::Sub,
+                _ => break
+            };
+            self.advance();
+            let right = self.parse_term()?;
+       	 expr = Expr::BinaryOp {
+           	 left: Box::new(expr),
+         	   op,
+          	  right: Box::new(right),
+      	  };
+        }
+        
+   	 Ok(expr)
+    }
+    fn parse_expr(&mut self) -> Result<Expr, ParserError>{
+  	  self.parse_equality()
 	}
 
     fn parse_if(&mut self) -> Result<Stmt, ParserError>{

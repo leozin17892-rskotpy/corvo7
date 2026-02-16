@@ -584,7 +584,7 @@ fn types_compatible(&self, expected: &Type, found: &Type) -> bool {
             BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Percent => {
                 self.is_integer_type(left) && self.is_integer_type(right)
             }
-            BinOp::DoubleEqual | BinOp::Less | BinOp::Greater | BinOp::LessEqual | BinOp::GreaterEqual => {
+            BinOp::DoubleEqual | BinOp::NotEqual | BinOp::Less | BinOp::Greater | BinOp::LessEqual | BinOp::GreaterEqual => {
                 self.types_compatible(left, right)
             }
             BinOp::IndentityOp => {
@@ -599,7 +599,7 @@ fn types_compatible(&self, expected: &Type, found: &Type) -> bool {
     fn result_type_of_binop(&self, left: &Type, op: &BinOp, _right: &Type) -> Type {
         match op {
             BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Percent => left.clone(),
-            BinOp::DoubleEqual | BinOp::Less | BinOp::Greater | BinOp::LessEqual | BinOp::GreaterEqual | BinOp::IndentityOp => Type::Bool,
+            BinOp::DoubleEqual | BinOp::NotEqual | BinOp::Less | BinOp::Greater | BinOp::LessEqual | BinOp::GreaterEqual | BinOp::IndentityOp => Type::Bool,
             BinOp::CompoundAdd | BinOp::CompoundSub | BinOp::CompoundMul | BinOp::CompoundDiv => left.clone(),
         }
     }
