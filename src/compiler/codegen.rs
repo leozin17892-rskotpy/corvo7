@@ -16,6 +16,7 @@ impl Codegen {
 		let mut output = String::from("#include <stdint.h>
 #include <stdio.h>
 #include <inttypes.h>
+#include <stdbool.h>
 
 
 void print_i128(__int128 n) {
