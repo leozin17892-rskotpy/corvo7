@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::iter::Peekable;
 use std::str::Chars;
-
+use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind{
@@ -24,6 +24,8 @@ pub enum TokenKind{
      Continue,
      When,
      While,
+     Loop,
+     As,
      
      
      // types
@@ -63,6 +65,7 @@ pub enum TokenKind{
      Equal,
      DoubleEqual,
      NotEqual,
+     FatArrow,
      Less,
      LessEqual,
      Greater,
@@ -99,17 +102,71 @@ pub enum LexerErrorKind{
     InvalidNumericSuffix,
     UnterminatedString,
 }
-pub struct LexerError{
-    pub kind: LexerErrorKind,
+#[derive(Debug, Clone)]
+pub struct Span{
     pub line: usize,
     pub column: usize,
 }
+#[derive(Debug)]
+pub struct LexerError{
+    pub kind: LexerErrorKind,
+    pub span: Span,
+}
+impl fmt::Display for LexerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.kind {
+            LexerErrorKind::InvalidChar(c) => {
+                write!(f, "error: invalid character '{}'", c)
+            }
+            LexerErrorKind::InvalidNumericSuffix => {
+                write!(f, "error: invalid numeric suffix")
+            }
+            LexerErrorKind::UnterminatedString => {
+                write!(f, "error: unterminated string")
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct LexerErrors(pub Vec<LexerError>);
+
+impl fmt::Display for LexerErrors {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for err in &self.0 {
+            writeln!(f, "{err}")?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for LexerErrors {}
 
 #[derive(Debug, Clone)]
 pub struct Token {
     pub kind: TokenKind,
-    pub line: usize,
-    pub column: usize,
+    pub span: Span,
+}
+pub fn print_lexer_error(file_path: &str, err: &LexerError, lines: &Vec<String>) {
+    if err.span.line == 0 || err.span.line > lines.len() {
+        eprintln!("Lexer Error at invalid line: {:?}", err);
+        return;
+    }
+
+    let line_text = &lines[err.span.line - 1];
+    // Título do erro
+    eprintln!("{}", err);
+    eprintln!(" --> {}:{}:{}", file_path, err.span.line, err.span.column);
+
+    // Linha do código
+    eprintln!("{:>4} | {}", err.span.line, line_text);
+
+    // Marcador "^" apontando para a coluna
+    let col = if err.span.column > line_text.len() { line_text.len() } else { err.span.column - 1 };
+    let mut marker = String::new();
+    for _ in 0..col { marker.push(' '); }
+    marker.push('^');
+    eprintln!("     | {}", marker);
 }
 
 fn lex_vec_literal(chars: &mut Peekable<Chars>, line: usize, column: &mut usize) -> Token {
@@ -154,8 +211,10 @@ fn lex_vec_literal(chars: &mut Peekable<Chars>, line: usize, column: &mut usize)
 
     Token {
         kind: TokenKind::VecLiteral(values),
+        span: Span{
         line,
-        column: start,
+        column: start
+       }
     }
 }
 
@@ -177,8 +236,10 @@ fn lex_num(chars: &mut Peekable<Chars>, line: usize, column: &mut usize) -> Resu
         if matches!(chars.peek(), Some(c) if c.is_ascii_alphanumeric() || *c == '_') {
      	   return Err(LexerError{
                 kind: LexerErrorKind::InvalidNumericSuffix,
-                line: line,
-                column: start,
+                span: Span{
+                	line: line,
+              	  column: start,
+                }
             });
   	  }
         *column += 1;
@@ -188,8 +249,10 @@ fn lex_num(chars: &mut Peekable<Chars>, line: usize, column: &mut usize) -> Resu
     };
     Ok(Token{
         kind,
-        line: line,
-        column: start,
+        span: Span { 
+            line: line,
+       	 column: start
+        },
     })
     
 }
@@ -220,7 +283,9 @@ fn lex_ident_or_keyword(chars: &mut Peekable<Chars>, line: usize, column: &mut u
         "break" => TokenKind::Break,
         "continue" => TokenKind::Continue,
         "in" => TokenKind::In,
+        "loop" => TokenKind::Loop,
         "when" => TokenKind::When,
+        "as" => TokenKind::As,
         "print" => TokenKind::Print,
         "true" => TokenKind::BoolLiteral(true),
         "false" => TokenKind::BoolLiteral(false),
@@ -231,6 +296,7 @@ fn lex_ident_or_keyword(chars: &mut Peekable<Chars>, line: usize, column: &mut u
         "u8" => TokenKind::UInt8,
         "u16" => TokenKind::UInt16,
         "u32" => TokenKind::UInt32,
+        "string" => TokenKind::Str,
         "u64" => TokenKind::UInt64,
         "u128" => TokenKind::UInt128,
         "i8" => TokenKind::Int8,
@@ -242,7 +308,11 @@ fn lex_ident_or_keyword(chars: &mut Peekable<Chars>, line: usize, column: &mut u
         "void" => TokenKind::Void,
         _ => TokenKind::Ident(word),
     };
-    Token { kind, line, column: start }
+    Token { kind, span: Span{
+        line, 
+        column: start
+        } 
+    }
 }
 fn lex_str(chars: &mut Peekable<Chars>, line: usize, column: &mut usize) -> Result<Token, LexerError>{
     let start = *column;
@@ -264,11 +334,17 @@ fn lex_str(chars: &mut Peekable<Chars>, line: usize, column: &mut usize) -> Resu
     if !closed{
         return Err(LexerError{
             kind: LexerErrorKind:: UnterminatedString,
-            line: line,
-            column: start,
+            span: Span { 
+                line: line,
+          	  column: start,
+            }
         });
     }
-    Ok(Token {kind: TokenKind::StringLiteral(string), line, column: start})
+    Ok(Token{kind: TokenKind::StringLiteral(string), span: Span{
+        line, 
+        column: start
+        }
+    })
 }
 fn lex_operator(
     chars: &mut Peekable<Chars>,
@@ -281,8 +357,10 @@ fn lex_operator(
         None => {
             return Err(LexerError{
             kind: LexerErrorKind::InvalidChar('\0'),
-            line,
-            column: start});
+            span: Span{
+                line,
+                column: start
+                }});
         }
     };
     *column += 1;
@@ -320,7 +398,7 @@ fn lex_operator(
             }
         }
         '/' => {
-            if chars.peek() == Some(&'/'){
+            if chars.peek() == Some(&'='){
                 chars.next();
                 *column += 1;
                 TokenKind::CompoundDiv
@@ -334,6 +412,10 @@ fn lex_operator(
                 chars.next();
                 *column += 1;
                 TokenKind::DoubleEqual
+            }else if chars.peek() == Some(&'>'){
+                chars.next();
+                *column += 1;
+                TokenKind::FatArrow	
             }else {
                 TokenKind::Equal
             }
@@ -358,8 +440,9 @@ fn lex_operator(
                 }else{
                     return Err(LexerError{
                         kind: LexerErrorKind::InvalidChar(c),
-                   	 line: line,
-                   	 column: start,
+                   	 span: Span{
+                        line: line,
+                   	 column: start},
                     });
                 }
             }else{
@@ -375,8 +458,10 @@ fn lex_operator(
             }else{
                 return Err(LexerError{
                     kind: LexerErrorKind::InvalidChar(c),
+                    span: Span{
                     line: line,
                     column: start,
+                    }
                 });
             }
         }
@@ -388,8 +473,10 @@ fn lex_operator(
             }else{
                 return Err(LexerError{
                     kind: LexerErrorKind::InvalidChar(c),
+                    span: Span{
                     line: line,
-                    column: start,
+                    column: start
+                    },
                 });
             }
         }
@@ -429,70 +516,72 @@ fn lex_operator(
         ']' => TokenKind::RightBracket,
         _ => return Err(LexerError {
             kind: LexerErrorKind::InvalidChar(c),
-            line: line,
-            column: start,
+            span: Span{line: line,
+            column: start
+            },
         }),
     };
 
-    Ok(Token { kind, line, column: start })
+    Ok(Token { kind, span: Span{line, column: start }})
 }
-pub fn lexer(file_path: &str) -> Vec<Token>{
+
+pub fn lexer(file_path: &str) -> Result<Vec<Token>, LexerErrors> {
     let file = File::open(file_path).expect("error reading file");
     let reader = BufReader::new(file);
+    let lines: Vec<String> = reader.lines().map(|l| l.unwrap()).collect();
+    
     let mut tokens: Vec<Token> = Vec::new();
-    let mut last_column = 1;
-    let mut last_line = 1;
-    for(line_num, line) in reader.lines().enumerate(){
-        let line = line.expect("Fail reading line");
+    let mut errors: Vec<LexerError> = Vec::new();
+    
+    for (line_num, line) in lines.iter().enumerate() {
         let line_no = line_num + 1;
         let mut chars = line.chars().peekable();
         let mut column = 1;
-        while let Some(c) = chars.peek().copied(){
-            match c{
+
+        while let Some(c) = chars.peek().copied() {
+            let result: Option<Result<Token, LexerError>> = match c {
                 _ if c.is_whitespace() => {
                     chars.next();
                     column += 1;
+                    None // Ignora whitespace
                 }
-                '[' => {
-                    tokens.push(lex_vec_literal(&mut chars, line_no, &mut column))
-                }
-                '0'..='9' => {
-                    match lex_num(&mut chars, line_no, &mut column){
-                        Ok(tok) => tokens.push(tok),
-                        Err(err) => {
-                            eprintln!("Lexer Error at {}:{} -> {:?}", err.line, err.column, err.kind);
-                            chars.next();
-                            column += 1;
-                        },
-                    }
-                }
-                'a'..='z' | 'A'..='Z' | '_' => tokens.push(lex_ident_or_keyword(&mut chars, line_no, &mut column)),
-                '"' =>{
-                    match lex_str(&mut chars, line_no, &mut column){
-                        Ok(tok) => tokens.push(tok),
-                        Err(err) => {
-                            eprintln!("Lexer Error at {}:{} -> {:?}", err.line, err.column, err.kind);
-                        }
-                    }
-                },
-                _ => {
-                    match lex_operator(&mut chars, line_no, &mut column){
-                        Ok(tok) => tokens.push(tok),
-                        Err(err) => {
-                            eprintln!("Lexer Error at {}:{} -> {:?}", err.line, err.column, err.kind);
-                        }
+                '[' => Some(Ok(lex_vec_literal(&mut chars, line_no, &mut column))),
+                '0'..='9' => Some(lex_num(&mut chars, line_no, &mut column)),
+                'a'..='z' | 'A'..='Z' | '_' => Some(Ok(lex_ident_or_keyword(&mut chars, line_no, &mut column))),
+                '"' => Some(lex_str(&mut chars, line_no, &mut column)),
+                _ => Some(lex_operator(&mut chars, line_no, &mut column)),
+            };
+
+            if let Some(res) = result {
+                match res {
+                    Ok(tok) => tokens.push(tok),
+                    Err(err) => {
+                        errors.push(err);
+                        // Estratégia de Sincronização:
+                        // Consome o char problemático para não entrar em loop infinito
+                        chars.next();
+                        column += 1;
                     }
                 }
             }
         }
-        last_column = column; 
-        last_line = line_no;
     }
-    tokens.push(Token{
+
+    if !errors.is_empty() {
+        for err in &errors {
+       	 print_lexer_error(file_path, err, &lines);
+ 	   }
+        return Err(LexerErrors(errors));
+    }
+
+    tokens.push(Token {
         kind: TokenKind::EOF,
-        line: last_line,
-        column: last_column,
+        span: Span{
+            line: lines.len(), // Melhor usar o total de linhas real
+            column: 1
+        },
     });
-    tokens
-	
-}    
+
+    Ok(tokens)
+}
+

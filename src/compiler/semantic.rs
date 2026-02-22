@@ -1,6 +1,7 @@
 use crate::compiler::parser::{Stmt, Expr, VarDecl, FuncDecl, Type, BinOp, Mutability, Assignment, IfStatement, ForLoop};
 use std::collections::HashMap;
 use crate::compiler::parser::WhileLoop;
+use crate::compiler::parser::Loop;
 
 #[derive(Debug, Clone)]
 pub struct SemanticAnalyzer {
@@ -29,6 +30,8 @@ pub enum SemanticErrorKind {
     UndeclaredVariable,
     UndeclaredFunction,
     RedeclaredVariable,
+    IntegerOverflow,
+    IntegerUnderflow,
     TypeMismatch,
     ImmutableAssignment,
     InvalidOperation,
@@ -89,7 +92,6 @@ impl SemanticAnalyzer {
         for stmt in stmts {
             self.check_stmt(stmt);
         }
-
         AnalysisResult {
             success: self.errors.is_empty(),
             errors: self.errors.clone(),
@@ -157,7 +159,9 @@ impl SemanticAnalyzer {
                 self.check_compound_assign(target, op, value);
             }
             Stmt::IfStatement(if_stmt) => self.check_if(if_stmt),
+            Stmt::WhenStatement(_) => (),
             Stmt::ForLoop(for_loop) => self.check_for(for_loop),
+            Stmt::Loop(c7_loop) => self.check_loop(c7_loop),
             Stmt::Return(expr) => self.check_return(expr),
             Stmt::Print(exprs) => {
                 for expr in exprs {
@@ -203,23 +207,94 @@ impl SemanticAnalyzer {
    	 self.exit_scope();
 	}
     fn check_var_decl(&mut self, var: &VarDecl) {
-        // Checa o tipo da expressão
-        let expr_type = self.check_expr(&var.value);
-        
-        // Verifica compatibilidade de tipos
-        if !self.types_compatible(&var.ty, &expr_type) {
-            self.error(
-                SemanticErrorKind::TypeMismatch,
-                format!(
-                    "Type mismatch in variable '{}': expected {:?}, found {:?}",
-                    var.name, var.ty, expr_type
-                )
-            );
-        }
+  	 let expr_type = self.check_expr(&var.value);
+   
+   // Verifica se é uma literal inteira que não cabe no tipo declarado
+	   if let Some(literal_val) = self.extract_integer_literal(&var.value) {
+     	  if !self.integer_fits_in_type(literal_val, &var.ty) {
+    	       let (min, max) = self.type_range(&var.ty);
+     	      self.error(
+             	  SemanticErrorKind::IntegerOverflow,
+             	  format!(
+              	     "Integer literal {} is out of range for type {:?} (range: {} to {})",
+                	   literal_val, var.ty, min, max
+             	  )
+           	);
+           return;
+   	    }
+ 	  }
+   
+   // Verificação normal de compatibilidade
+  	 if !self.types_compatible(&var.ty, &expr_type) {
+       	self.error(
+           	SemanticErrorKind::TypeMismatch,
+           	format!(
+            	   "Type mismatch in variable '{}': expected {:?}, found {:?}",
+              	 var.name, var.ty, expr_type
+          	 )
+      	 );
+   }
 
-        // Declara a variável no escopo atual
-        self.declare_var(var.name.clone(), var.ty.clone(), var.mutability);
-    }
+   self.declare_var(var.name.clone(), var.ty.clone(), var.mutability);
+	}
+
+	fn extract_integer_literal(&self, expr: &Expr) -> Option<i128> {
+ 	  match expr {
+      	 Expr::IntLiteral(v) => Some(*v as i128),
+    	   Expr::UIntLiteral(v) => Some(*v as i128),
+    	   Expr::I128Literal(v) => Some(*v),
+    	   Expr::U128Literal(v) => Some(*v as i128),
+     	  Expr::Int8(v) => Some(*v as i128),
+      	 Expr::Int16(v) => Some(*v as i128),
+    	   Expr::Int32(v) => Some(*v as i128),
+     	  Expr::Int64(v) => Some(*v as i128),
+      	 Expr::Int128(v) => Some(*v),
+     	  Expr::UInt8(v) => Some(*v as i128),
+      	 Expr::UInt16(v) => Some(*v as i128),
+    	   Expr::UInt32(v) => Some(*v as i128),
+   	    Expr::UInt64(v) => Some(*v as i128),
+      	 Expr::UInt128(v) => Some(*v as i128),
+     	  Expr::Int(v) => Some(*v as i128),
+    	   Expr::UInt(v) => Some(*v as i128),
+     	  _ => None,
+	   }
+	}
+
+	fn integer_fits_in_type(&self, val: i128, ty: &Type) -> bool {
+   	match ty {
+   	    Type::I8 => val >= i8::MIN as i128 && val <= i8::MAX as i128,
+   	    Type::I16 => val >= i16::MIN as i128 && val <= i16::MAX as i128,
+   	    Type::I32 => val >= i32::MIN as i128 && val <= i32::MAX as i128,
+   	    Type::I64 => val >= i64::MIN as i128 && val <= i64::MAX as i128,
+    	   Type::I128 => true,
+    	   Type::U8 => val >= 0 && val <= u8::MAX as i128,
+    	   Type::U16 => val >= 0 && val <= u16::MAX as i128,
+     	  Type::U32 => val >= 0 && val <= u32::MAX as i128,
+    	   Type::U64 => val >= 0 && val <= u64::MAX as i128,
+   	    Type::U128 => val >= 0,
+   	    Type::Int => val >= i64::MIN as i128 && val <= i64::MAX as i128,
+  	     Type::UInt => val >= 0 && val <= u64::MAX as i128,
+   	    _ => true,
+ 	  }
+	}
+
+	fn type_range(&self, ty: &Type) -> (String, String) {
+  	 match ty {
+      	 Type::I8 => (i8::MIN.to_string(), i8::MAX.to_string()),
+   	    Type::I16 => (i16::MIN.to_string(), i16::MAX.to_string()),
+     	  Type::I32 => (i32::MIN.to_string(), i32::MAX.to_string()),
+     	  Type::I64 => (i64::MIN.to_string(), i64::MAX.to_string()),
+     	  Type::I128 => (i128::MIN.to_string(), i128::MAX.to_string()),
+     	  Type::U8 => ("0".to_string(), u8::MAX.to_string()),
+     	  Type::U16 => ("0".to_string(), u16::MAX.to_string()),
+    	   Type::U32 => ("0".to_string(), u32::MAX.to_string()),
+    	   Type::U64 => ("0".to_string(), u64::MAX.to_string()),
+    	   Type::U128 => ("0".to_string(), u128::MAX.to_string()),
+    	   Type::Int => (i64::MIN.to_string(), i64::MAX.to_string()),
+   	    Type::UInt => ("0".to_string(), u64::MAX.to_string()),
+    	   _ => ("?".to_string(), "?".to_string()),
+	   }
+	}
 
     fn check_assignment(&mut self, assign: &Assignment) {
         // Verifica se a variável existe
@@ -316,6 +391,15 @@ impl SemanticAnalyzer {
         }
     }
 
+    fn check_loop(&mut self, loop_statement: &Loop){
+        self.enter_scope();
+        self.loop_depth += 1;
+        for stmt in &loop_statement.body{
+            self.check_stmt(stmt);
+        }
+        self.loop_depth -= 1;
+        self.exit_scope();
+    }
     fn check_for(&mut self, for_loop: &ForLoop) {
         // Start e end devem ser inteiros
         let start_type = self.check_expr(&for_loop.start);
@@ -423,9 +507,36 @@ impl SemanticAnalyzer {
     // ============ CHECAGEM DE EXPRESSÕES ============
 
     fn check_expr(&mut self, expr: &Expr) -> Type {
-    match expr {
-        Expr::UIntLiteral(_) => Type::UInt,
-        Expr::IntLiteral(_) => Type::Int,
+    	match expr {
+        Expr::IntLiteral(v) => {
+   		 if *v >= i8::MIN as i64 && *v <= i8::MAX as i64 {
+      		  Type::I8
+   		 } else if *v >= i16::MIN as i64 && *v <= i16::MAX as i64 {
+     		   Type::I16
+   	 	} else if *v >= i32::MIN as i64 && *v <= i32::MAX as i64 {
+       		 Type::I32
+   		 }else if *v >= i64::MIN as i64 && *v <= i64::MAX as i64{
+                Type::I64 
+            }else {
+     		   Type::I128 // i64
+   		 }
+		}
+
+		Expr::UIntLiteral(v) => {
+   		 if *v <= u8::MAX as u64 {
+      		  Type::U8
+   		 } else if *v <= u16::MAX as u64 {
+     	 	  Type::U16
+   		 } else if *v <= u32::MAX as u64 {
+       		 Type::U32
+   		 }else if *v <= u64::MAX as u64{
+                Type::U64
+            }else {
+      	 	 Type::U128 // u64
+    		}
+		}
+        Expr::I128Literal(_) => Type::I128,
+        Expr::U128Literal(_) => Type::U128,
         Expr::BoolLiteral(_) => Type::Bool,
         Expr::StringLiteral(_) => Type::Str,
         Expr::UInt8(_) => Type::U8,

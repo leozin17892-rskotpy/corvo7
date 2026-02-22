@@ -5,6 +5,7 @@ a.out
 codigo
 lexer,
 main,
+makefile
 ,
 output
 *.c7

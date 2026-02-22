@@ -3,11 +3,10 @@ use corvo7::compiler::parser::Parser as CParser;
 use corvo7::compiler::semantic::SemanticAnalyzer;
 use corvo7::compiler::codegen::Codegen;
 
-use std::env;
+use std::path::Path;
 use std::fs;
 use std::process::Command;
 use std::time::Instant;
-
 use clap::Parser;
 
 
@@ -26,72 +25,73 @@ struct Cli {
     #[arg(short, long, default_value_t = false)]
     compile_only: bool,
 }
-
-fn main() {
+fn run() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
-    let filename = &cli.filename;
+    let filename = Path::new(&cli.filename);
 
     // Lexer
-    let tokens = lexer(filename);
+    let tokens = match lexer(&cli.filename) {
+    Ok(tokens) => tokens,
+    Err(errs) => {
+        return Err(format!(
+            "aborting due to {} previous errors",
+            errs.0.len()
+        ).into());
+  	  }
+	};
 
     // Parser
     let mut parser = CParser::new(tokens);
     let stmts = parser.parse().unwrap_or_exit();
 
-
-    // Semantic Analysis
     let mut analyzer = SemanticAnalyzer::new();
     analyzer.analyze(&stmts).unwrap_or_exit();
 
-    println!("✅ Semantic analysis complete");
-    println!("Generating C code...");
-
-    let codegen = Codegen;
+	let codegen = Codegen::new();
     let c_code = codegen.generate(&stmts);
-    let output_c = filename.replace(".c7", ".c");
-    fs::write(&output_c, &c_code).expect("Error writing C file");
-    let exe_name = filename.replace(".c7", "");
 
-    // Escolha do compilador
+    let output_c = filename.with_extension("c");
+    fs::write(&output_c, &c_code)?;
+    
     let compiler = if cli.gcc { "gcc" } else { "clang" };
-
+    
+    #[cfg(target_os = "windows")]
+    let output_exe = filename.with_extension("exe");
+    
+    #[cfg(not(target_os = "windows"))]
+    let output_exe = filename.with_extension("");
+    
     let status = Command::new(compiler)
-        .arg(&output_c)
-        .arg("-o")
-        .arg(&exe_name)
-        .status()
-        .expect("Failed to start compiler");
-
-    if !status.success() {
-        eprintln!("❌ Compilation failed with {}", compiler);
-        std::process::exit(1);
+    .arg(&output_c)
+    .arg("-o")
+    .arg(&output_exe)
+    .status()?;
+    let output = Command::new(compiler)
+    .arg(&output_c)
+    .arg("-o")
+    .arg(&output_exe)
+    .output()?;
+    if !status.success(){
+        eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+        return Err(format!("{} failed to compile generated C code", compiler).into());
     }
+    if !cli.compile_only{
+        let start = Instant::now();
+        let run_status = Command::new(&output_exe)
+        .status()?;
 
-    println!("🎉 Compilation successful: {}", exe_name);
-
-    if cli.compile_only {
-        return; // não roda se --compile-only
+   	 if !run_status.success() {
+       	 return Err("program exited with error".into());
+ 	   }
+        let end = start.elapsed();
+        println!("program exited with {:.2?}", end);
     }
-
-    println!("🚀 Running: ./{}", exe_name);
-    println!("─────────────────────────────────");
-
-    let start = Instant::now();
-    let run_status = Command::new(format!("./{}", exe_name))
-        .output()
-        .expect("Failed to run executable");
-    let duration = start.elapsed();
-
-    if run_status.status.success() {
-        print!("{}", String::from_utf8_lossy(&run_status.stdout));
-        println!("✅ Program exited successfully.");
-        println!("⏱️ Execution time: {:.6} seconds", duration.as_secs_f64());
-        println!("─────────────────────────────────");
-    } else {
-        eprintln!("stderr: {}", String::from_utf8_lossy(&run_status.stderr));
-        println!("⚠️  Program failed with code {:?}", run_status.status.code());
-        println!("⏱️ Execution time: {:.6} seconds", duration.as_secs_f64());
+    Ok(())
+}
+fn main() {
+    if let Err(err) = run(){
+        eprintln!("{err}");
         std::process::exit(1);
     }
 }

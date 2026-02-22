@@ -12,7 +12,9 @@ pub enum Stmt {
     VarDecl(VarDecl),
     FuncDecl(FuncDecl),
     IfStatement(IfStatement),
+    WhenStatement(WhenStatement),
     ForLoop(ForLoop),
+    Loop(Loop),
     WhileLoop(WhileLoop),
     Return(Expr),
     Print(Vec<Expr>),
@@ -39,6 +41,7 @@ pub struct Assignment {
 pub enum ParserErrorKind{
     ExpectedSemiColonKind,
     ExpectedTokenNotFound,
+    DuplicateElseStatement,
     ExpectedIdentifierNotFound,
     InvalidExpression,
     InvalidVariableDecl,
@@ -76,6 +79,13 @@ impl fmt::Display for ParserError {
     }
 }
 #[derive(Debug, Clone)]
+pub struct WhenStatement {
+    pub condition: Expr,
+    pub arms: Vec<(Expr, Vec<Stmt>)>,
+    pub else_arm: Option<Vec<Stmt>>
+}
+
+#[derive(Debug, Clone)]
 pub struct IfStatement{
     pub condition: Expr,
     pub then_branch: Vec<Stmt>,
@@ -100,6 +110,10 @@ pub struct FuncDecl{
     pub params: Vec<(Type, String)>,
     pub return_type: Option<Type>,
     pub body: Vec<Stmt>, 
+}
+#[derive(Debug, Clone)]
+pub struct Loop{
+    pub body: Vec<Stmt>
 }
 #[derive(Debug, Clone)]
 pub struct ForLoop{
@@ -130,7 +144,8 @@ pub enum Type {
     Vec{
         inner: Box<Type>,
         size: usize,
-    }
+    },
+    Unknown
 }
 #[derive(Debug, Clone)]
 pub enum BinOp {
@@ -156,6 +171,8 @@ pub enum BinOp {
 pub enum Expr {
     UIntLiteral(u64),
     IntLiteral(i64),
+    U128Literal(u128),
+    I128Literal(i128),
     BoolLiteral(bool),
     StringLiteral(String),
     UInt8(u8),
@@ -242,6 +259,14 @@ impl Parser{
     fn lookup_var(&self, name: &str) -> Option<&VarDecl> {
         self.variables.get(name)
     }
+    fn error<T>(&self, kind: ParserErrorKind, message: String) -> Result<T, ParserError>{
+        return Err(ParserError{
+            kind,
+            error: message,
+            column: self.peek().span.column,
+            line: self.peek().span.line
+        })
+    }
     fn advance(&mut self) -> &Token{
         let tok = &self.tokens[self.pos];
         self.pos += 1;
@@ -252,34 +277,64 @@ impl Parser{
             TokenKind::CompoundAdd | TokenKind::CompoundSub | TokenKind::CompoundMul | TokenKind::CompoundDiv
         )
     }
-    fn parse_compound_assign(&mut self, target_name: String) -> Result<Stmt, ParserError> {
-    	let op = match self.peek().kind {
-     	   TokenKind::CompoundAdd => BinOp::CompoundAdd,
-      	  TokenKind::CompoundSub => BinOp::CompoundSub,
-       	 TokenKind::CompoundMul => BinOp::CompoundMul,
-       	 TokenKind::CompoundDiv => BinOp::CompoundDiv,
-     	   _ => unreachable!(),
-  	  };
-    	self.advance(); 
-   	 let value = self.parse_expr()?;
-   	 self.expect(TokenKind::Semicolon)?;
+    fn parse_assignment_or_compound(&mut self) -> Result<Stmt, ParserError> {
+    let name = self.expect_ident()?;
 
-    	Ok(Stmt::CompoundAssign {
-     	   target: target_name,
-      	  op,
-       	 value,
-    	})
+    match self.peek().kind {
+        TokenKind::Equal => {
+            self.advance();
+            let value = self.parse_expr()?;
+            self.expect(TokenKind::Semicolon)?;
+            Ok(Stmt::Assignment(Assignment {
+                target: name,
+                value,
+            }))
+        }
+
+        TokenKind::CompoundAdd
+        | TokenKind::CompoundSub
+        | TokenKind::CompoundMul
+        | TokenKind::CompoundDiv => {
+
+            let op = match self.peek().kind {
+                TokenKind::CompoundAdd => BinOp::CompoundAdd,
+                TokenKind::CompoundSub => BinOp::CompoundSub,
+                TokenKind::CompoundMul => BinOp::CompoundMul,
+                TokenKind::CompoundDiv => BinOp::CompoundDiv,
+                _ => unreachable!(),
+            };
+
+            self.advance();
+            let value = self.parse_expr()?;
+            self.expect(TokenKind::Semicolon)?;
+
+            Ok(Stmt::CompoundAssign {
+                target: name,
+                op,
+                value,
+            })
+        }
+
+        _ => {
+            self.error(
+                ParserErrorKind::InvalidExpression,
+                format!("Unexpected token after identifier")
+            )
+    	}
+      }
 	}
-    fn peek_next(&self) -> &Token {
-    	&self.tokens[self.pos + 1]
-	}
+    
 
     fn parse_print(&mut self) -> Result<Stmt, ParserError>{
         self.expect(TokenKind::Print)?;
         self.expect(TokenKind::LeftParen)?;
         let mut internal = Vec::new();
         while self.peek().kind != TokenKind::RightParen && self.peek().kind != TokenKind::EOF{
-            internal.push(self.parse_expr()?)
+            if self.peek().kind == TokenKind::Comma{
+                self.advance();
+            }else{
+           	 internal.push(self.parse_expr()?)
+            }
         }
         self.expect(TokenKind::RightParen)?;
         self.expect(TokenKind::Semicolon)?;
@@ -309,10 +364,16 @@ impl Parser{
 		}
         TokenKind::UIntLiteral(v) => {
             self.advance();
+            if v > u64::MAX as u128{
+                return Ok(Expr::U128Literal(v as u128));
+            }
             Ok(Expr::UIntLiteral(v as u64))
         }
         TokenKind::IntLiteral(v) => {
             self.advance();
+            if v > i64::MAX as u128{
+                return Ok(Expr::I128Literal(v as i128));
+            }
             Ok(Expr::IntLiteral(v as i64))
         }
         TokenKind::BoolLiteral(v) => {
@@ -354,11 +415,11 @@ impl Parser{
             kind: ParserErrorKind::InvalidExpression,
             error: format!("Invalid Expression: {:?} in {}:{}",
             self.peek().kind,
-            self.peek().line,
-            self.peek().column
+            self.peek().span.line,
+            self.peek().span.column
       	  ),
-            column: self.peek().column,
-            line: self.peek().line
+            column: self.peek().span.column,
+            line: self.peek().span.line
             })
   	  }
 	}
@@ -393,9 +454,9 @@ impl Parser{
             },
             _ => Err(ParserError{
                 kind: ParserErrorKind::ExpectedIdentifierNotFound,
-                error: format!("Expected identifier in {}:{} found {:?}", self.peek().line, self.peek().column, self.peek().kind), 
-                column: self.peek().column, 
-                line: self.peek().line
+                error: format!("Expected identifier in {}:{} found {:?}", self.peek().span.line, self.peek().span.column, self.peek().kind), 
+                column: self.peek().span.column, 
+                line: self.peek().span.line
             }),
         }
     } 
@@ -410,11 +471,11 @@ impl Parser{
                 error: format!("Expected {:?}, found {:?} in {}:{}",
                 kind,
                 self.peek().kind,
-                self.peek().line,
-                self.peek().column
+                self.peek().span.line,
+                self.peek().span.column
                 ),
-                line: self.peek().line,
-                column: self.peek().column
+                line: self.peek().span.line,
+                column: self.peek().span.column
                 }
             )
         }
@@ -439,6 +500,14 @@ impl Parser{
         
         Ok(Stmt::WhileLoop(WhileLoop{
             cond,
+            body
+        }))
+    }
+    fn parse_loop(&mut self) -> Result<Stmt, ParserError>{
+        self.expect(TokenKind::Loop)?;
+        self.expect(TokenKind::LeftBrace)?;
+        let body = self.parse_block()?;
+        Ok(Stmt::Loop(Loop{
             body
         }))
     }
@@ -472,7 +541,7 @@ impl Parser{
     
     fn parse_type(&mut self) -> Result<Type, ParserError>{
         match &self.peek().kind{
-            TokenKind::StringLiteral(_) => {
+            TokenKind::Str => {
                 self.advance();
                 Ok(Type::Str)
             }
@@ -553,8 +622,8 @@ impl Parser{
                 panic!(
             "Esperado tipo, encontrado {:?} em {}:{}",
           	  self.peek().kind,
-          	  self.peek().line,
-    	        self.peek().column
+          	  self.peek().span.line,
+    	        self.peek().span.column
             )
         
             }   
@@ -649,6 +718,36 @@ impl Parser{
   	  self.parse_equality()
 	}
 
+    fn parse_when(&mut self) -> Result<Stmt, ParserError> {
+        self.expect(TokenKind::When)?;
+        let condition = self.parse_expr()?;
+        self.expect(TokenKind::LeftBrace)?;
+        let mut arms = Vec::new();
+        let mut else_arm = None;
+        while self.peek().kind != TokenKind::RightBrace && self.peek().kind != TokenKind::EOF {
+            if self.peek().kind == TokenKind::Else {
+                self.advance();
+                self.expect(TokenKind::FatArrow)?;
+                let block = self.parse_block()?;
+                if else_arm.is_some() {
+                    return self.error::<Stmt>(ParserErrorKind::DuplicateElseStatement, format!("Multiple else arms in when"));
+                }
+                else_arm = Some(block);
+                break;
+            } else {
+                let value = self.parse_expr()?;
+                self.expect(TokenKind::FatArrow)?;
+                let block = self.parse_block()?;
+                arms.push((value, block));
+            }
+        }
+        self.expect(TokenKind::RightBrace)?;
+        Ok(Stmt::WhenStatement(WhenStatement {
+            condition,
+            arms,
+            else_arm,
+        }))
+    }
     fn parse_if(&mut self) -> Result<Stmt, ParserError>{
         
         self.expect(TokenKind::If)?;
@@ -684,13 +783,102 @@ impl Parser{
             else_branch
         }))
     }
+    fn parse_params(&mut self) -> Result<Vec<(Type, String)>, ParserError> {
+  	  let mut params = Vec::new();
+
+    // Consome o '(' inicial (já deve estar posicionado antes de chamar, ou chame dentro de parse_func_decl)
+    	self.expect(TokenKind::LeftParen)?;
+
+    // Se for vazio: fun foo() { ... }
+    	if self.peek().kind == TokenKind::RightParen {
+      	  self.advance(); // consome ')'
+       	 return Ok(params); // lista vazia
+   	 }
+
+   	 loop {
+        // Parseia o tipo (obrigatório no teu lang?)
+       	 let ty = self.parse_type()?;
+
+        // Nome do parâmetro (identificador)
+        	let name = self.expect_ident()?;
+
+        // Adiciona na lista
+       	 params.push((ty, name));
+
+        // Checa se tem mais (vírgula) ou fecha
+        	if self.peek().kind == TokenKind::Comma {
+           	 self.advance(); // consome ','
+            // Continua pro próximo param
+       	 } else {
+            // Se não for vírgula, espera ')'
+         	   break;
+      	  }
+  	  }
+
+    // Fecha os parênteses
+  	  self.expect(TokenKind::RightParen)?;
+
+  	  Ok(params)
+	}
+    fn parse_funcdecl(&mut self) -> Result<Stmt, ParserError>{
+        self.expect(TokenKind::Fun)?;
+        let return_type = self.parse_type()?;
+        let name = self.expect_ident()?;
+        let params = self.parse_params()?;
+        self.expect(TokenKind::LeftBrace)?;
+        let body = self.parse_block()?;
+        Ok(Stmt::FuncDecl(FuncDecl{
+            name,
+            params,
+            return_type: Some(return_type),
+            body
+        }))
+    }
+    fn parse_var_decl(&mut self) -> Result<Stmt, ParserError> {
+  	  let mutability = if self.peek().kind == TokenKind::Const {
+    	    self.advance();
+      	  Mutability::Const
+   	 } else {
+      	  self.expect(TokenKind::Var)?;
+      	  Mutability::Mutable
+  	  };
+        let ty = self.parse_type()?;
+     	   
+  	  let name = self.expect_ident()?;  // usa tua fn expect_ident
+
+  	  self.expect(TokenKind::Equal)?;  // assume = obrigatório
+
+  	  let value = self.parse_expr()?;
+
+  	  self.expect(TokenKind::Semicolon)?;
+
+  	  let var_decl = VarDecl {
+     	   name: name.clone(),
+     	   ty,
+     	   value,
+    	    mutability,
+  	  };
+
+    // Adiciona na scope local (pra checar duplicatas depois ou no semantic)
+   	 if self.variables.contains_key(&name) {
+     	   return self.error::<Stmt>(
+          	  ParserErrorKind::DuplicateVariableError,
+          	  format!("Variable '{}' was already declared", name),
+     	   );
+	    }
+  	  self.add_var(var_decl.clone());
+
+   	 Ok(Stmt::VarDecl(var_decl))
+	}
     
     fn parse_statement(&mut self) -> Result<Stmt, ParserError>{
         match self.peek().kind {
      	   TokenKind::Fun => Ok(self.parse_funcdecl()?),
-     	   TokenKind::Var | TokenKind::Const => Ok(self.parse_valdecl()?),
+     	   TokenKind::Var | TokenKind::Const => Ok(self.parse_var_decl()?),
             TokenKind::If => self.parse_if(),
             TokenKind::For => self.parse_for(),
+            TokenKind::When => self.parse_when(),
+            TokenKind::Loop => self.parse_loop(),
             TokenKind::While => self.parse_while(),
             TokenKind::Print => self.parse_print(),
             TokenKind::Return => {
@@ -708,178 +896,27 @@ impl Parser{
                 self.advance();
                 self.expect(TokenKind::Semicolon)?;
                 Ok(Stmt::Continue)
-            }
+            }    
             TokenKind::Ident(_) => {
-                let var_name = if let TokenKind::Ident(n) = self.peek().kind.clone() { n } else { unreachable!() };
-                self.advance();
-                
-                if self.is_compound_op(){
-                    Ok(self.parse_compound_assign(var_name)?)
-                }else if self.peek().kind == TokenKind::Equal {
-   				 self.advance(); // consome '='
-   				 let value = self.parse_expr()?;
-    				self.expect(TokenKind::Semicolon)?;
-                    if let Some(var) = self.lookup_var(&var_name) {
-  					  if var.mutability == Mutability::Const {
-      					  return Err(ParserError {
-           					 kind: ParserErrorKind::InvalidVariableDecl,
-           					 error: format!("Cannot assign to const variable '{}'", var_name),
-          					  line: self.peek().line,
-          					  column: self.peek().column,
-       					 });
-       				 }
-    				}
-                    if self.lookup_var(&var_name).is_none() {
-  					  return Err(ParserError{
-      					  kind: ParserErrorKind::UndefinedVariable,
-     					   error: format!("assignment to undeclared variable `{}` at {}:{}", var_name, self.peek().line, self.peek().column),
-      					  line: self.peek().line,
-     					   column: self.peek().column,
-   				 });
-					}
-   				 Ok(Stmt::Assignment(Assignment{
-                        target: var_name,
-                        value
-                       }))
-			 	}else{
-                    Err(ParserError{
-                        error: format!("Expected compound operator or '=' after identifier in {}:{}; found '{:?}'", self.peek().line, self.peek().column, self.peek().kind),
-                        kind: ParserErrorKind::InvalidVariableDecl,
-                        column: self.peek().column,
-                        line: self.peek().line
-                        })
-                }
+                self.parse_assignment_or_compound()
             }
-       	 _ => Err(ParserError{
-                    error: format!("Expected valid Expression in {}:{}; found '{:?}'", self.peek().line, self.peek().column, self.peek().kind),
-                    kind: ParserErrorKind::InvalidExpression,
-                    column: self.peek().column,
-                    line: self.peek().line
-                 })
-  	  }
-	}
-
-	fn is_type_token(&self) -> bool {
-  	  matches!(
-      	  self.peek().kind,
-   	     TokenKind::UInt8 | TokenKind::UInt16 | TokenKind::UInt32 | TokenKind::UInt64 | 
-   	     TokenKind::Int8 | TokenKind::Int16 | TokenKind::Int32 | TokenKind::Bool | TokenKind::Void | TokenKind::Int | TokenKind::Str | TokenKind::Vec
-   	 )
-	}
+            _ => panic!("{}", format!("Expr {:?} was not found in {}:{}", self.peek().kind, self.peek().span.line, self.peek().span.column)),
+        }    
+    }
     fn synchronize(&mut self) {
-    // Avança até encontrar um ponto de sincronização
   	  while self.peek().kind != TokenKind::EOF {
       	  match self.peek().kind {
-            // Pontos seguros para resincronizar
           	  TokenKind::Semicolon | TokenKind::RightBrace | 
            	 TokenKind::Fun | TokenKind::Var | TokenKind::If | 
           	  TokenKind::For | TokenKind::Return => break,
            	 _ => { self.advance(); }
         	}
     	}
-    // Consome o token de sincronização se não for EOF
    	 if self.peek().kind != TokenKind::EOF {
       	  self.advance();
     	}
 	}
-
-
-    pub fn parse_funcdecl(&mut self) -> Result<Stmt, ParserError>{
-        self.expect(TokenKind::Fun)?;
-        let return_type = if self.is_type_token(){
-            Some(self.parse_type()?)
-        }else{
-            Some(Type::Void)
-        };    
-        let name = self.expect_ident()?;
-        self.expect(TokenKind::LeftParen)?;
-        let mut params = Vec::new();
-        if self.peek().kind != TokenKind::RightParen{
-            loop {
-                let p_type = self.parse_type()?;
-                let p_name = self.expect_ident()?;
-                params.push((p_type, p_name));
-                if self.peek().kind == TokenKind::Comma{
-                    self.advance();
-                }else{
-                    break;
-                }
-            }
-        }
-        self.expect(TokenKind::RightParen)?;
-        
-        self.expect(TokenKind::LeftBrace)?;
-        let mut body = Vec::new();
-        while self.peek().kind != TokenKind::RightBrace && self.peek().kind != TokenKind::EOF{
-            body.push(self.parse_statement()?)
-        }
-        self.expect(TokenKind::RightBrace)?;
-        Ok(Stmt::FuncDecl(FuncDecl{
-            name,
-            params,
-            return_type,
-            body
-        }))
-    }    
-    
-    pub fn parse_valdecl(&mut self) -> Result<Stmt, ParserError> {
-    	let mutability = match self.peek().kind {
-     	   TokenKind::Const => {
-     	       self.advance();
-     	       Mutability::Const
-     	   }
-       	 TokenKind::Var => {
-          	  self.advance();
-         	   Mutability::Mutable
-       	 }
-       	 _ => {
-         	   return Err(ParserError {
-            	    kind: ParserErrorKind::InvalidVariableDecl,
-          	      error: format!(
-           	         "Expected 'const' or 'var' at {}:{}, found {:?}",
-            	        self.peek().line,
-            	        self.peek().column,
-             	       self.peek().kind
-             	   ),
-              	  column: self.peek().column,
-             	   line: self.peek().line,
-          	  });
-      	  }
-    };
-
-    let ty = if self.is_type_token() {
-        Some(self.parse_type()?)
-    } else {
-        None
-    };
-
-    let name = self.expect_ident()?;
-    if let Some(varia) = self.lookup_var(&name){
-        return Err(ParserError{
-            kind: ParserErrorKind::DuplicateVariableError,
-            error: format!("duplicate variable {} found in current scope; {}:{}", name, self.peek().line, self.peek().column),
-            line: self.peek().line,
-            column: self.peek().column
-        }
-        )
-    }
-    self.expect(TokenKind::Equal)?;
-    let value = self.parse_expr()?;
-
-    let ty = ty.unwrap_or_else(|| infer_type_from_expr(&value));
-
-    self.expect(TokenKind::Semicolon)?;
-
-    let valdecl = VarDecl {
-        name,
-        ty,
-        value,
-        mutability,
-    };
-    self.add_var(valdecl.clone());
-    Ok(Stmt::VarDecl(valdecl))
-	}
-	pub fn parse(&mut self) -> ParseResult {
+    pub fn parse(&mut self) -> ParseResult {
   	  let mut stmts_parse = Vec::new();
         let mut errors_parse = Vec::new();
  	   while self.peek().kind != TokenKind::EOF {
@@ -896,7 +933,6 @@ impl Parser{
             stmts: stmts_parse,
             errors: errors_parse,
             success: success
-        }
-        
+        }    
     }
-}
+}    
