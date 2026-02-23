@@ -1,4 +1,5 @@
 use crate::compiler::ir::*;
+use crate::compiler::parser::Type;
 use std::fmt::Write;
 
 pub struct CodegenLLC;
@@ -13,6 +14,15 @@ impl CodegenLLC {
 
         // Cabeçalho C
         c.push_str("#include <stdio.h>\n#include <stdbool.h>\n#include <stdint.h>\n\n");
+        c.push_str("void print_i128(__int128 n) {
+    if(n==0){printf(\"0\"); return;}
+    if(n<0){printf(\"-\"); n=-n;}
+    char str[40];
+    int i=0;
+    while(n>0){str[i++]=(n%10)+'0'; n/=10;}
+    while(i--) putchar(str[i]);
+    putchar('\\n');
+}\n\n");
         c.push_str("int main() {\n");
 
         // Mapa de temporários
@@ -79,6 +89,22 @@ impl CodegenLLC {
                     }else{
                         writeln!(c, "    t{} = t{} - t{};", dst.0, lhs.0, rhs.0).unwrap();
                     }
+                }
+                Instr::Print { temp, ty} => {
+                    match ty{
+                        Type::Bool => {
+            // bool precisa do ternário true/false
+          				  writeln!(c, "    printf(\"%s\\n\", t{} ? \"true\" : \"false\");", temp.0).unwrap();
+       				 }
+      				  Type::I128 => {
+            // se você implementou a função print_i128 no cabeçalho
+         				   writeln!(c, "    print_i128(t{}); printf(\"\\n\");", temp.0).unwrap();
+      				  }
+       				 _ => {
+           				 // padrão para inteiros 64-bit ou outros tipos que usam printf normal
+           				 writeln!(c, "    printf(\"%ld\\n\", t{});", temp.0).unwrap();
+      				  }
+                   }
                 }
 
 				Instr::Greater { dst, lhs, rhs } => {

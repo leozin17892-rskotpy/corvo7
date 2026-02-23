@@ -1,3 +1,6 @@
+use crate::compiler::parser::*;
+use crate::compiler::parser::Type;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Temp(pub usize);
 
@@ -24,6 +27,7 @@ pub enum Instr {
     LessEq { dst: Temp, lhs: Temp, rhs: Temp },
 
     Label(Label),
+    Print{temp: Temp, ty: Type},
     Jump(Label),
     JumpIfFalse { cond: Temp, label: Label },
 

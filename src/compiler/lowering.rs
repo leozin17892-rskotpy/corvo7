@@ -1,6 +1,7 @@
 use crate::compiler::parser::*;
 use crate::compiler::ir::*;
 
+
 pub struct Lowering {
     temp_counter: usize,
     label_counter: usize,
@@ -27,6 +28,39 @@ impl Lowering {
         let name = format!("{}_{}", prefix, self.label_counter);
         self.label_counter += 1;
         name
+    }
+    pub fn get_type(&self, expr: &Expr) -> Type {
+        match expr {
+            Expr::IntLiteral(_) => Type::Int,
+            Expr::UIntLiteral(_) => Type::UInt,
+            Expr::I128Literal(_) => Type::I128,
+            Expr::U128Literal(_) => Type::U128,
+            Expr::BoolLiteral(_) => Type::Bool,
+            Expr::StringLiteral(_) => Type::Str,
+            Expr::BinaryOp { left, right, op: _ } => {
+                let left_ty = self.get_type(left);
+                let right_ty = self.get_type(right);
+                // Supondo coercion para tipos maiores
+                self.coerce_type(left_ty, right_ty)
+            }
+            _ => Type::Int, // fallback genérico
+        }
+    }
+
+    /// Coerção simples de tipo
+    fn coerce_type(&self, a: Type, b: Type) -> Type {
+        use Type::*;
+        match (a, b) {
+            (I128, _) | (_, I128) => I128,
+            (U128, _) | (_, U128) => U128,
+            (I64, _) | (_, I64) => I64,
+            (U64, _) | (_, U64) => U64,
+            (Int, _) | (_, Int) => Int,
+            (UInt, _) | (_, UInt) => UInt,
+            (Bool, Bool) => Bool,
+            (Str, Str) => Str,
+            _ => Int,
+        }
     }
     fn lower_if(&mut self, if_stmt: &IfStatement, out: &mut Vec<Instr>){
    	 let cond_temp = self.lower_expr(&if_stmt.condition, out);
@@ -105,6 +139,14 @@ impl Lowering {
                	 name: assign.target.clone(),
              	   src: value,
            	 });
+            }
+            Stmt::Print(exprs) => {
+                for expr in exprs{
+                    let temp = self.lower_expr(expr, out);
+                    let ty = self.get_type(expr);
+                    
+                    out.push(Instr::Print { temp, ty });
+                }
             }
             Stmt::IfStatement(if_stmt) => self.lower_if(if_stmt, out),
 
