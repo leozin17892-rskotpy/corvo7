@@ -2,6 +2,8 @@ use corvo7::compiler::lexer::lexer;
 use corvo7::compiler::parser::Parser as CParser;
 use corvo7::compiler::semantic::SemanticAnalyzer;
 use corvo7::compiler::codegen::Codegen;
+use corvo7::compiler::codegenllc::CodegenLLC;
+use corvo7::compiler::lowering::Lowering;
 
 use std::path::Path;
 use std::fs;
@@ -20,6 +22,9 @@ struct Cli {
     /// Use GCC instead of Clang
     #[arg(short, long, default_value_t = false)]
     gcc: bool,
+    
+    #[arg(short, long, default_value_t = false)]
+    ll: bool,
 
     /// Apenas compilar, não rodar
     #[arg(short, long, default_value_t = false)]
@@ -46,10 +51,21 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let stmts = parser.parse().unwrap_or_exit();
 
     let mut analyzer = SemanticAnalyzer::new();
-    analyzer.analyze(&stmts).unwrap_or_exit();
+    if !cli.ll{
+   	 analyzer.analyze(&stmts).unwrap_or_exit();
+    }else{
+        
+    }
 
-	let codegen = Codegen::new();
-    let c_code = codegen.generate(&stmts);
+	let c_code = if !cli.ll {
+    	let codegen = Codegen::new();
+   	 codegen.generate(&stmts)
+	} else {
+  	  let codegen = CodegenLLC::new();
+ 	   let mut lower = Lowering::new();
+   	 let lowered = lower.lower_program(&stmts);
+  	  codegen.generate(&lowered)
+	};
 
     let output_c = filename.with_extension("c");
     fs::write(&output_c, &c_code)?;

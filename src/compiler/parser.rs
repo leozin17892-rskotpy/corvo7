@@ -272,11 +272,6 @@ impl Parser{
         self.pos += 1;
         tok
     }
-    fn is_compound_op(&mut self) -> bool{
-        matches!(self.peek().kind, 
-            TokenKind::CompoundAdd | TokenKind::CompoundSub | TokenKind::CompoundMul | TokenKind::CompoundDiv
-        )
-    }
     fn parse_assignment_or_compound(&mut self) -> Result<Stmt, ParserError> {
     let name = self.expect_ident()?;
 
