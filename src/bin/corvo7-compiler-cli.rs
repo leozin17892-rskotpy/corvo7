@@ -25,6 +25,9 @@ struct Cli {
     
     #[arg(short, long, default_value_t = false)]
     ll: bool,
+    
+    #[arg(short, long, default_value_t = 2)]
+    O: u8,
 
     /// Apenas compilar, não rodar
     #[arg(short, long, default_value_t = false)]
@@ -51,19 +54,15 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let stmts = parser.parse().unwrap_or_exit();
 
     let mut analyzer = SemanticAnalyzer::new();
-    if !cli.ll{
-   	 analyzer.analyze(&stmts).unwrap_or_exit();
-    }else{
-        
-    }
+    analyzer.analyze(&stmts).unwrap_or_exit();
 
 	let c_code = if !cli.ll {
-    	let codegen = Codegen::new();
+    	let mut codegen = Codegen::new();
    	 codegen.generate(&stmts)
 	} else {
   	  let codegen = CodegenLLC::new();
  	   let mut lower = Lowering::new();
-   	 let lowered = lower.lower_program(&stmts);
+   	 let lowered = lower.lower_program(&stmts, "main");
   	  codegen.generate(&lowered)
 	};
 
@@ -83,10 +82,17 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     .arg("-o")
     .arg(&output_exe)
     .status()?;
+    let otimization_level = if cli.O <= 5 { cli.O } else { 2 };
+    let mut extra_flag = "";
+    if otimization_level >= 4{
+        extra_flag = "-march=native";
+    }
     let output = Command::new(compiler)
     .arg(&output_c)
     .arg("-o")
     .arg(&output_exe)
+    .arg(&format!("-O{}", otimization_level))
+    .arg(extra_flag)
     .output()?;
     if !status.success(){
         eprintln!("{}", String::from_utf8_lossy(&output.stderr));

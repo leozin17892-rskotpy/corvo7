@@ -37,13 +37,23 @@ pub struct Assignment {
     pub target: String,
     pub value: Expr,
 }
+
+#[derive(Debug, Clone)]
+pub struct TypedExpr{
+    pub expr: Box<Expr>,
+    pub ty: Type,
+}
+
 #[derive(Debug, Clone)]
 pub enum ParserErrorKind{
     ExpectedSemiColonKind,
     ExpectedTokenNotFound,
     DuplicateElseStatement,
     ExpectedIdentifierNotFound,
+    TypeNotFound,
+    UnknownStmt,
     InvalidExpression,
+    UnexpectedEOF,
     InvalidVariableDecl,
     DuplicateVariableError,
     UndefinedVariable
@@ -124,7 +134,7 @@ pub struct ForLoop{
     pub body: Vec<Stmt>
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     U8,
     U16,
@@ -166,6 +176,7 @@ pub enum BinOp {
     CompoundMul,
     CompoundDiv,
 }
+
 
 #[derive(Debug, Clone)]
 pub enum Expr {
@@ -209,32 +220,18 @@ pub enum Expr {
 }
 
 fn infer_type_from_expr(expr: &Expr) -> Type {
-   	 match expr {
-      	  Expr::UIntLiteral(v) => {
-          	  if *v <= u8::MAX as u64 {
-           	     Type::U8
-       	     }else if *v <= u16::MAX as u64 {
-           	     Type::U16
-          	  } else if *v <= u32::MAX as u64 {
-             	   Type::U32
-          	  } else if *v <= u64::MAX {
-                    Type::UInt
-            	}else{
-                    Type::U128
-                }
-        	}
+    match expr {
+  	  Expr::UIntLiteral(v) => {
+      	  Type::UInt
+    	}
         Expr::IntLiteral(v) => {
-            if *v >= i8::MIN as i64 && *v <= i8::MAX as i64 {
-                Type::I8
-            }else if *v >= i16::MIN as i64 && *v <= i16::MAX as i64 {
-                Type::I16
-            }else if *v >= i32::MIN as i64 && *v <= i32::MAX as i64 {
-                Type::I32
-            }else if *v <= i64::MAX && *v >= i64::MIN{
-                Type::Int
-            }else{
-                Type::I128 
-            }
+    	    Type::Int
+        }
+        Expr::I128Literal(v) => {
+            Type::I128
+        }
+        Expr::U128Literal(v) => {
+            Type::U128
         }
         Expr::BoolLiteral(v) => {
             if *v == true || *v == false{
@@ -243,15 +240,30 @@ fn infer_type_from_expr(expr: &Expr) -> Type {
                 panic!("Bool type expected but found: {:?}", v)
             }
         }
+        Expr::BinaryOp { op, .. } => {
+            match op{
+                BinOp::Add | BinOp::Sub | BinOp::Div | BinOp::Mul | BinOp::CompoundAdd | BinOp::CompoundDiv | BinOp::CompoundMul | BinOp::CompoundSub => Type::Int,
+                BinOp::DoubleEqual | BinOp::Greater | BinOp::GreaterEqual | BinOp::IndentityOp | BinOp::Less | BinOp::LessEqual => Type::Bool,
+                _ => panic!("Cant Infer BinOp {:?}", op)
+            }
+        }
         _ => panic!("Não consigo inferir tipo de {:?}", expr),
   	  }
-}        
+} 
+       
 impl Parser{
     pub fn new(tokens: Vec<Token>) -> Self{
         Self { tokens, pos: 0, variables: HashMap::new()}
     }
     pub fn peek(&self) -> &Token{
         &self.tokens[self.pos]
+    }
+    pub fn previous(&self) -> &Token{
+        if self.pos == 0 {
+      	  &self.tokens[0]
+  	  } else {
+       	 &self.tokens[self.pos - 1]
+  	  }
     }
     fn add_var(&mut self, var: VarDecl) {
         self.variables.insert(var.name.clone(), var);
@@ -267,9 +279,25 @@ impl Parser{
             line: self.peek().span.line
         })
     }
+    fn error_span<T>(&self, message: String, token: Option<&Token>) -> Result<T, ParserError> {
+   	 let (line, column) = if let Some(tok) = token {
+       	 (tok.span.line, tok.span.column)
+	    } else {
+       	 (self.peek().span.line, self.peek().span.column)
+	    };
+
+ 	   Err(ParserError {
+     	   kind: ParserErrorKind::InvalidExpression,
+     	   error: message,
+     	   line,
+     	   column,
+   	 })
+	}
     fn advance(&mut self) -> &Token{
         let tok = &self.tokens[self.pos];
-        self.pos += 1;
+        if self.pos != self.tokens.len() - 1{
+            self.pos += 1;
+        }
         tok
     }
     fn parse_assignment_or_compound(&mut self) -> Result<Stmt, ParserError> {
@@ -364,12 +392,19 @@ impl Parser{
             }
             Ok(Expr::UIntLiteral(v as u64))
         }
+        TokenKind::NegIntLiteral(v) => {
+            self.advance();
+            if v >= i64::MIN as i128 && v <= i64::MAX as i128{
+                return Ok(Expr::IntLiteral(v as i64));
+            }
+            Ok(Expr::I128Literal(v))
+        }
         TokenKind::IntLiteral(v) => {
             self.advance();
-            if v > i64::MAX as u128{
-                return Ok(Expr::I128Literal(v as i128));
+            if v >= i64::MIN as i128 && v <= i64::MAX as i128{
+                return Ok(Expr::IntLiteral(v as i64));
             }
-            Ok(Expr::IntLiteral(v as i64))
+            Ok(Expr::I128Literal(v))
         }
         TokenKind::BoolLiteral(v) => {
             self.advance();
@@ -447,12 +482,7 @@ impl Parser{
        	     self.advance();
                 Ok(name)
             },
-            _ => Err(ParserError{
-                kind: ParserErrorKind::ExpectedIdentifierNotFound,
-                error: format!("Expected identifier in {}:{} found {:?}", self.peek().span.line, self.peek().span.column, self.peek().kind), 
-                column: self.peek().span.column, 
-                line: self.peek().span.line
-            }),
+            _ => self.error_span(format!("Expected identifier in {}:{} found {:?}", self.peek().span.line, self.peek().span.column, self.peek().kind), Some(self.peek()))
         }
     } 
     
@@ -476,14 +506,27 @@ impl Parser{
         }
     } 
     fn parse_block(&mut self) -> Result<Vec<Stmt>, ParserError> {
-   	 let mut stmts = Vec::new();
-  	  while self.peek().kind != TokenKind::RightBrace && self.peek().kind != TokenKind::EOF {
-   	     stmts.push(self.parse_statement()?);
-	    }
-  	  self.expect(TokenKind::RightBrace)?;
-      Ok(stmts)
-	}
+  	  let mut stmts = Vec::new();
 
+    // ESSA É A CONDIÇÃO CORRETA E MAIS SEGURA
+   	 while self.peek().kind != TokenKind::RightBrace && self.peek().kind != TokenKind::EOF {
+       	 stmts.push(self.parse_statement()?);
+  	  }
+
+   	 // Se chegou aqui e não é RightBrace, é EOF → erro
+  	  if self.peek().kind == TokenKind::EOF {
+        	return Err(ParserError {
+          	  kind: ParserErrorKind::UnexpectedEOF,
+         	   error: "Unexpected end of file inside block".to_string(),
+         	   line: self.peek().span.line,
+           	 column: self.peek().span.column,
+      	  });
+    	}
+
+  	  self.expect(TokenKind::RightBrace)?;
+
+    	Ok(stmts)
+	}
     fn parse_while(&mut self) -> Result<Stmt, ParserError>{
         self.expect(TokenKind::While)?;
         self.expect(TokenKind::LeftParen)?;
@@ -507,32 +550,36 @@ impl Parser{
         }))
     }
     fn parse_for(&mut self) -> Result<Stmt, ParserError> {
- 	   self.expect(TokenKind::For)?;
-  	  let var = self.expect_ident()?;
-   	 self.expect(TokenKind::In)?;
+    self.expect(TokenKind::For)?;
+    let var = self.expect_ident()?;
+    self.expect(TokenKind::In)?;
 
-    	let start = self.parse_expr()?; // Consome o 0
-   	 self.expect(TokenKind::Range)?; // Consome o primeiro ..
+    let start = self.parse_expr()?;
 
-   	 let next_val = self.parse_expr()?; // Consome o 2
-    
-   	 let mut step = None;
-  	  let end;
+    self.expect(TokenKind::Range)?;           // primeiro ".."
 
-  	  if let TokenKind::Range = self.peek().kind {
-      	  self.advance(); 
-     	   step = Some(next_val);
-      	  end = self.parse_expr()?; 
-   	 } else {
-      	  end = next_val;
-   	 }
+    // Aqui é o segredo: usamos parse_primary() para não consumir o segundo ".."
+    let middle = self.parse_primary()?;
 
-   	 self.expect(TokenKind::LeftBrace)?;
-    	let body = self.parse_block()?;
+    let (step, end) = if self.peek().kind == TokenKind::Range {
+        self.advance();                       // consome o segundo ".."
+        let end = self.parse_expr()?;
+        (Some(middle), end)
+    } else {
+        (None, middle)
+    };
 
-   	 Ok(Stmt::ForLoop(ForLoop { var, start, step, end, body }))
-	}
+    self.expect(TokenKind::LeftBrace)?;
+    let body = self.parse_block()?;
 
+    Ok(Stmt::ForLoop(ForLoop {
+        var,
+        start,
+        step,
+        end,
+        body,
+    }))
+}
     
     fn parse_type(&mut self) -> Result<Type, ParserError>{
         match &self.peek().kind{
@@ -614,13 +661,7 @@ impl Parser{
   			  })
 			}
             _ => {
-                panic!(
-            "Esperado tipo, encontrado {:?} em {}:{}",
-          	  self.peek().kind,
-          	  self.peek().span.line,
-    	        self.peek().span.column
-            )
-        
+                return Err(ParserError { kind: ParserErrorKind::TypeNotFound, column: self.peek().span.column, line: self.peek().span.line, error: format!("Expected Type, Found {:?}", self.peek().kind) });
             }   
        }
     }
@@ -817,7 +858,7 @@ impl Parser{
 	}
     fn parse_funcdecl(&mut self) -> Result<Stmt, ParserError>{
         self.expect(TokenKind::Fun)?;
-        let return_type = self.parse_type()?;
+        let return_type = self.parse_type().unwrap_or(Type::Void);
         let name = self.expect_ident()?;
         let params = self.parse_params()?;
         self.expect(TokenKind::LeftBrace)?;
@@ -837,19 +878,25 @@ impl Parser{
       	  self.expect(TokenKind::Var)?;
       	  Mutability::Mutable
   	  };
-        let ty = self.parse_type()?;
+        let mut ty = match self.parse_type(){
+            Ok(v) => Some(v),
+            Err(_) => None
+        };
      	   
-  	  let name = self.expect_ident()?;  // usa tua fn expect_ident
+  	  let name = self.expect_ident()?; 
 
   	  self.expect(TokenKind::Equal)?;  // assume = obrigatório
 
   	  let value = self.parse_expr()?;
+        if ty.is_none(){
+            ty = Some(infer_type_from_expr(&value));
+        }
 
   	  self.expect(TokenKind::Semicolon)?;
 
   	  let var_decl = VarDecl {
      	   name: name.clone(),
-     	   ty,
+     	   ty: ty.unwrap(),
      	   value,
     	    mutability,
   	  };
@@ -867,7 +914,8 @@ impl Parser{
 	}
     
     fn parse_statement(&mut self) -> Result<Stmt, ParserError>{
-        match self.peek().kind {
+        let token = self.peek().clone();
+        match token.kind {
      	   TokenKind::Fun => Ok(self.parse_funcdecl()?),
      	   TokenKind::Var | TokenKind::Const => Ok(self.parse_var_decl()?),
             TokenKind::If => self.parse_if(),
@@ -894,22 +942,33 @@ impl Parser{
             }    
             TokenKind::Ident(_) => {
                 self.parse_assignment_or_compound()
-            }
-            _ => panic!("{}", format!("Expr {:?} was not found in {}:{}", self.peek().kind, self.peek().span.line, self.peek().span.column)),
+ 		   }
+            _ => {
+                self.advance();
+                Err(ParserError{kind: ParserErrorKind::UnknownStmt, column: token.span.column, line: token.span.line, error: format!("Stmt {:?} was not found in {}:{}", token.kind, token.span.line, token.span.column)})
+            },
         }    
     }
     fn synchronize(&mut self) {
+        self.advance();
   	  while self.peek().kind != TokenKind::EOF {
-      	  match self.peek().kind {
-          	  TokenKind::Semicolon | TokenKind::RightBrace | 
-           	 TokenKind::Fun | TokenKind::Var | TokenKind::If | 
-          	  TokenKind::For | TokenKind::Return => break,
-           	 _ => { self.advance(); }
-        	}
-    	}
-   	 if self.peek().kind != TokenKind::EOF {
-      	  self.advance();
-    	}
+  		  if self.previous().kind == TokenKind::Semicolon {
+      		  return;
+  		  }
+
+   		 match self.peek().kind {
+     		   TokenKind::Fun
+   		     | TokenKind::Var
+      		  | TokenKind::If
+     		   | TokenKind::For
+     		   | TokenKind::While
+      		  | TokenKind::Return
+                | TokenKind::RightBrace => return,
+     		   _ => {}
+		    }
+
+   	 self.advance();
+		}
 	}
     pub fn parse(&mut self) -> ParseResult {
   	  let mut stmts_parse = Vec::new();

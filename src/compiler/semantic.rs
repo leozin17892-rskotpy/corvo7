@@ -39,6 +39,7 @@ pub enum SemanticErrorKind {
     WrongReturnType,
     ArgumentCountMismatch,
     ArgumentTypeMismatch,
+    InvalidStep,
 }
 
 #[derive(Debug, Clone)]
@@ -404,7 +405,7 @@ impl SemanticAnalyzer {
         // Start e end devem ser inteiros
         let start_type = self.check_expr(&for_loop.start);
         let step_type;
-        if let Some(step) = &for_loop.step{
+        if let Some(_step) = &for_loop.step{
             step_type = Some(self.check_expr(&for_loop.step.clone().unwrap()));
         }else{
             step_type = None
@@ -416,6 +417,16 @@ impl SemanticAnalyzer {
                 SemanticErrorKind::TypeMismatch,
                 format!("For loop start must be integer, found {:?}", start_type)
             );
+        }
+        if let Some(step_expr) = &for_loop.step.clone(){
+            if let Expr::IntLiteral(value) = step_expr{
+                if *value == 0{
+                    self.error(
+                        SemanticErrorKind::InvalidStep,
+                        "For loop step cannot be 0".to_string()
+                    )
+                }
+            }
         }
         	if step_type.is_some(){
       		  if !self.is_integer_type(&step_type.clone().unwrap()){
@@ -503,6 +514,40 @@ impl SemanticAnalyzer {
             }
         }
     }
+    fn const_eval(&self, expr: &Expr) -> Option<i128> {
+  	  match expr {
+
+    	    Expr::IntLiteral(v) => Some(*v as i128),
+            Expr::UIntLiteral(v) => Some(*v as i128),
+            Expr::Int8(v) => Some(*v as i128),
+     	   Expr::Int16(v) => Some(*v as i128),
+      	  Expr::Int32(v) => Some(*v as i128),
+      	  Expr::Int64(v) => Some(*v as i128),
+     	   Expr::Int128(v) => Some(*v),
+
+     	   Expr::UInt8(v) => Some(*v as i128),
+      	  Expr::UInt16(v) => Some(*v as i128),
+     	   Expr::UInt32(v) => Some(*v as i128),
+    	    Expr::UInt64(v) => Some(*v as i128),
+    	    Expr::UInt128(v) => Some(*v as i128),
+        
+
+      	  Expr::BinaryOp { left, op, right } => {
+       	     let l = self.const_eval(left)?;
+      	      let r = self.const_eval(right)?;
+
+         	   match op {
+           	     BinOp::Add => Some(l + r),
+             	   BinOp::Sub => Some(l - r),
+             	   BinOp::Mul => Some(l * r),
+             	   BinOp::Div => Some(l / r),
+              	  BinOp::Percent => Some(l % r),
+              	  _ => None
+          	  }
+      	  }
+     	   _ => None
+  	  }
+	}
 
     // ============ CHECAGEM DE EXPRESSÕES ============
 
@@ -611,22 +656,62 @@ impl SemanticAnalyzer {
         }
 
         Expr::BinaryOp { left, op, right } => {
-            let left_type = self.check_expr(left);
-            let right_type = self.check_expr(right);
 
-            if !self.is_valid_binop(&left_type, op, &right_type) {
-                self.error(
-                    SemanticErrorKind::InvalidOperation,
-                    format!(
-                        "Invalid binary operation {:?} between {:?} and {:?}",
-                        op, left_type, right_type
-                    )
-                );
-            }
+  	 	 let lt = self.check_expr(left);
+  	 	 let rt = self.check_expr(right);
 
-            // Retorna o tipo resultante
-            self.result_type_of_binop(&left_type, op, &right_type)
+    		if lt == Type::Void || rt == Type::Void {
+      		  return Type::Void;
+  		  }
+
+  		  if lt != rt {
+     		   self.error(
+         		   SemanticErrorKind::InvalidOperation,
+         		   format!(
+             		   "Invalid binary operation {:?} between {:?} and {:?}",
+            		    op, lt, rt
+         	 	  )
+        		);
+     		   return Type::Void;
+  		  }
+
+   		 match op {
+
+        // operadores aritméticos
+     		   BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Percent => {
+
+       		     if !self.is_integer_type(&lt) {
+             		   self.error(
+                  		  SemanticErrorKind::InvalidOperation,
+                  		  format!("Operator {:?} requires integer types", op)
+               		 );
+              		  return Type::Void;
+        		    }	
+        	    lt
         }
+
+        // comparações
+     	   BinOp::Greater
+      	  | BinOp::Less
+     	   | BinOp::GreaterEqual
+     	   | BinOp::LessEqual
+     	   | BinOp::DoubleEqual
+     	   | BinOp::NotEqual => {
+
+          	  if !self.is_integer_type(&lt) {
+               	 self.error(
+              	      SemanticErrorKind::InvalidOperation,
+              	   	   format!("Operator {:?} requires integer types", op)
+              	  );
+               	 return Type::Void;
+           	 }
+
+            Type::Bool
+        }
+
+        _ => Type::Void
+   	 }
+	}
 
         Expr::Identity { expr, negated: _ } => {
             let ty = self.check_expr(expr);

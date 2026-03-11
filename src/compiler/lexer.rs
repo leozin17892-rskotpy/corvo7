@@ -47,7 +47,8 @@ pub enum TokenKind{
      Str,
      
      // literals
-     IntLiteral(u128),
+     IntLiteral(i128),
+     NegIntLiteral(i128),
      UIntLiteral(u128),
      BoolLiteral(bool),
      StringLiteral(String),
@@ -100,6 +101,7 @@ pub enum TokenKind{
 pub enum LexerErrorKind{
     InvalidChar(char),
     InvalidNumericSuffix,
+    NegativeNumWithUSuffix,
     UnterminatedString,
 }
 #[derive(Debug, Clone)]
@@ -123,6 +125,9 @@ impl fmt::Display for LexerError {
             }
             LexerErrorKind::UnterminatedString => {
                 write!(f, "error: unterminated string")
+            }
+            LexerErrorKind::NegativeNumWithUSuffix => {
+                write!(f, "error: negative numeric value with 'u' suffix")
             }
         }
     }
@@ -221,7 +226,18 @@ fn lex_vec_literal(chars: &mut Peekable<Chars>, line: usize, column: &mut usize)
 
 fn lex_num(chars: &mut Peekable<Chars>, line: usize, column: &mut usize) -> Result<Token, LexerError>{
     let start = *column;
+    let mut is_negative = false;
     let mut value = String::new();
+    if let Some(&'-') = chars.peek(){
+        let next = chars.clone().nth(1); // peek no segundo caractere
+        if let Some(c) = next {
+            if c.is_ascii_digit() {
+                is_negative = true;
+                chars.next();           // consome o '-'
+                *column += 1;
+            }
+        }
+    }
     while let Some(&c) = chars.peek(){
         if c.is_ascii_digit(){
             value.push(c);
@@ -231,6 +247,17 @@ fn lex_num(chars: &mut Peekable<Chars>, line: usize, column: &mut usize) -> Resu
             break;
         }
     }
+    if value.is_empty(){
+        return Err(LexerError{
+            kind: LexerErrorKind::InvalidChar('-'), // ou outro erro apropriado
+            span: Span { line, column: start },
+        })
+    }
+    let mut value_parsed: u128 = value.parse().map_err(|_| LexerError {
+        kind: LexerErrorKind::InvalidChar('?'), // melhorar depois
+        span: Span { line, column: start },
+    })?;
+    
     let kind = if chars.peek() == Some(&'u'){
         chars.next();
         if matches!(chars.peek(), Some(c) if c.is_ascii_alphanumeric() || *c == '_') {
@@ -242,10 +269,19 @@ fn lex_num(chars: &mut Peekable<Chars>, line: usize, column: &mut usize) -> Resu
                 }
             });
   	  }
+        if is_negative {
+            // erro: sufixo u com número negativo
+            return Err(LexerError { kind: LexerErrorKind::NegativeNumWithUSuffix,  span: Span { line, column: start } });
+        }
         *column += 1;
         TokenKind::UIntLiteral(value.parse().unwrap())
     }else{
-        TokenKind::IntLiteral(value.parse().unwrap())
+        let signed_value = if is_negative { -(value_parsed as i128) } else { value_parsed as i128 };
+        if is_negative{
+      	  TokenKind::NegIntLiteral(signed_value)
+        }else{
+            TokenKind::IntLiteral(signed_value)
+        }
     };
     Ok(Token{
         kind,
@@ -404,7 +440,7 @@ fn lex_operator(
                 TokenKind::CompoundDiv
             }else{
                 TokenKind::Slash
-            }
+          }
         }
         '%' => TokenKind::Percent,
         '=' => {
@@ -546,7 +582,16 @@ pub fn lexer(file_path: &str) -> Result<Vec<Token>, LexerErrors> {
                     None // Ignora whitespace
                 }
                 '[' => Some(Ok(lex_vec_literal(&mut chars, line_no, &mut column))),
-                '0'..='9' => Some(lex_num(&mut chars, line_no, &mut column)),
+                '0'..='9' => {
+  				  Some(lex_num(&mut chars, line_no, &mut column))
+				}
+
+				'-' => {
+ 				   match chars.clone().nth(1) {
+     				   Some('0'..='9') => Some(lex_num(&mut chars, line_no, &mut column)),
+                        _ => Some(lex_operator(&mut chars, line_no, &mut column))
+ 				   }
+				}
                 'a'..='z' | 'A'..='Z' | '_' => Some(Ok(lex_ident_or_keyword(&mut chars, line_no, &mut column))),
                 '"' => Some(lex_str(&mut chars, line_no, &mut column)),
                 _ => Some(lex_operator(&mut chars, line_no, &mut column)),
