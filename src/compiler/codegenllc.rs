@@ -79,7 +79,7 @@ impl CodegenLLC {
             Type::U128 => "unsigned int128_t",
             Type::Vec{ .. } => "brh",
             Type::Void => "void",
-            Type::Str => "",
+            Type::Str => "char*",
             Type::Unknown => "n",
             _ => unreachable!(),
         };

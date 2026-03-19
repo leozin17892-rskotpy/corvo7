@@ -5,19 +5,22 @@ use std::cell::RefCell;
 
 pub struct Codegen {
     pub step_num: usize,
+    pub when_count: usize,
     pub functions: RefCell<HashMap<String, Type>>,
+    pub prelude: Vec<String>,
     pub symbols: RefCell<HashMap<String, Type>>,
 }
 
 impl Codegen {
     pub fn new() -> Self{
-        Self { symbols: RefCell::new(HashMap::new()), functions: RefCell::new(HashMap::new()), step_num: 0}
+        Self { symbols: RefCell::new(HashMap::new()), functions: RefCell::new(HashMap::new()), step_num: 0, when_count: 0, prelude: Vec::new()}
     }
     pub fn generate(&mut self, stmts: &[Stmt]) -> String {
         // No seu Codegen::generate, adicione isso ao Header:
 		let mut output = String::from("#include <stdint.h>
 #include <stdio.h>
 #include <inttypes.h>
+#include <string.h>
 #include <stdbool.h>
 
 
@@ -36,9 +39,18 @@ void print_i128(__int128 n) {
 }\n\n
 ");
         for stmt in stmts {
-            output.push_str(&self.gen_stmt(stmt));
-            output.push('\n');
-        }
+   		 self.prelude.clear();
+
+ 		   let stmt_code = self.gen_stmt(stmt);
+
+  		  for pre in &self.prelude {
+     	 	  output.push_str(pre);
+    	   	 output.push('\n');
+   		 }
+
+   		 output.push_str(&stmt_code);
+   		 output.push('\n');
+		}
         output
     }
     fn indent_with(&self, spaces: usize, code: &str) -> String {
@@ -62,7 +74,7 @@ void print_i128(__int128 n) {
 	}
 
 
-    fn gen_format_cast(&self, expr: &Expr) -> (&'static str, Option<String>, bool){
+    fn gen_format_cast(&mut self, expr: &Expr) -> (&'static str, Option<String>, bool){
         match expr{
             Expr::IntLiteral(v) => {
                 if *v >= i8::MIN as i64 && *v <= i8::MAX as i64{
@@ -183,7 +195,8 @@ void print_i128(__int128 n) {
                 self.indent_with(4, &code)
         }
             Stmt::Assignment(a) => {
-                self.indent_with(4, &format!("{} = {};", &a.target, self.gen_expr(&a.value)))
+                let value = self.gen_expr(&a.value);
+                self.indent_with(4, &format!("{} = {};", &a.target, value))
             }
             Stmt::VarDecl(v) => {
                 let prefix = match v.mutability{
@@ -198,12 +211,23 @@ void print_i128(__int128 n) {
                     }
                     _ => {
                         let ty = Self::gen_type(&v.ty);
-                		let val = self.gen_expr(&v.value);
+                		self.prelude.clear();
+						let val = self.gen_expr(&v.value);
+
+						// pega o prelude gerado pelo expr
+						let mut pre = String::new();
+						for p in &self.prelude {
+						    pre.push_str(p);
+ 						   pre.push('\n');
+						}
+
+						// limpa depois de usar
+						self.prelude.clear();
                         self.symbols.borrow_mut().insert(v.name.clone(), v.ty.clone());
                         if ty == "int64_t"{
                             return format!("{}{} {} = {}LL;", prefix, ty, v.name, val);
                         }
-                        format!("{}{} {} = {};", prefix, ty, v.name, val)
+                        format!("{}{}{} {} = {};", pre, prefix, ty, v.name, val)
                     }
                 };
                 code
@@ -303,7 +327,7 @@ void print_i128(__int128 n) {
 
       			  for stmt in block {
            			 let line = self.gen_stmt(stmt); 
-           			 out.push_str(&format!("        {};\n", line));
+           			 out.push_str(&format!("        {}\n", line));
        			 }
 
       			  out.push_str("        break;\n");
@@ -348,7 +372,7 @@ void print_i128(__int128 n) {
           }
         } // Fim do match (Sem ponto e vírgula aqui para ele ser o retorno da função)
 
-    fn gen_expr(&self, expr: &Expr) -> String {
+    fn gen_expr(&mut self, expr: &Expr) -> String {
         match expr {
             Expr::UIntLiteral(v) =>{
                 v.to_string()
@@ -411,6 +435,55 @@ void print_i128(__int128 n) {
                 let args_str: Vec<String> = args.iter().map(|e| self.gen_expr(e)).collect();
                 format!("{}({})", name, args_str.join(", "))
             }
+            Expr::WhenExpr(w) => {
+   			 let mut code = String::new();
+   			 let tmp = format!("when_{}", self.when_count);
+   			 self.when_count += 1;
+
+  			  let cond = self.gen_expr(&w.condition);
+
+   			 let is_string = match &*w.condition {
+     		  	 Expr::Ident(name) => {
+            			matches!(self.symbols.borrow().get(name), Some(Type::Str))
+       			 }
+      			  _ => false
+  			  };
+
+  			  code.push_str(&format!("\nint {};", tmp));
+
+  	 		 for (i, (value, expr)) in w.arms.iter().enumerate() {
+       			 let val = self.gen_expr(value);
+      			  let result = self.gen_expr(expr);
+
+        			let comparison = if is_string {
+            			format!("strcmp({}, {}) == 0", cond, val)
+       			 } else {
+         			   format!("{} == {}", cond, val)
+      			  };
+
+       			 if i == 0 {
+          			  code.push_str(&format!(
+               			 "\nif ({}) {{\n    {} = {};\n}}",
+               			 comparison, tmp, result
+        			    ));
+     			   } else {
+         			   code.push_str(&format!(
+               		 "\nelse if ({}) {{\n    {} = {};\n}}",
+              		  comparison, tmp, result
+          		  	));
+       			 }
+   	     }
+
+   		 if let Some(default_expr) = &w.else_arm {
+      		  let result = self.gen_expr(default_expr);
+      			  code.push_str(&format!(
+          			  "\nelse {{\n    {} = {};\n}}",
+          			  tmp, result
+       			 ));
+   		 }
+            self.prelude.push(code);
+    		tmp
+		}
             _ => "0".to_string(), 
         }
    }

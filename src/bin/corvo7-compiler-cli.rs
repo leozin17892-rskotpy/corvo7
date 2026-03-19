@@ -32,7 +32,11 @@ struct Cli {
     /// Apenas compilar, não rodar
     #[arg(short, long, default_value_t = false)]
     compile_only: bool,
+    
+    #[arg(short, long, default_value_t = false)]
+    ns: bool,
 }
+
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
@@ -53,9 +57,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut parser = CParser::new(tokens);
     let stmts = parser.parse().unwrap_or_exit();
 
-    let mut analyzer = SemanticAnalyzer::new();
-    analyzer.analyze(&stmts).unwrap_or_exit();
-
+    if !cli.ns{
+  	  let mut analyzer = SemanticAnalyzer::new();
+  	  analyzer.analyze(&stmts).unwrap_or_exit();
+    }else{
+        
+    }
 	let c_code = if !cli.ll {
     	let mut codegen = Codegen::new();
    	 codegen.generate(&stmts)

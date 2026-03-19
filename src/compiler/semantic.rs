@@ -205,6 +205,7 @@ impl SemanticAnalyzer {
     	for stmt in &while_loop.body {
      	   self.check_stmt(stmt);
   	  }
+        self.loop_depth -= 1;
    	 self.exit_scope();
 	}
     fn check_var_decl(&mut self, var: &VarDecl) {
@@ -514,6 +515,7 @@ impl SemanticAnalyzer {
             }
         }
     }
+    
     fn const_eval(&self, expr: &Expr) -> Option<i128> {
   	  match expr {
 
@@ -554,31 +556,31 @@ impl SemanticAnalyzer {
     fn check_expr(&mut self, expr: &Expr) -> Type {
     	match expr {
         Expr::IntLiteral(v) => {
-   		 if *v >= i8::MIN as i64 && *v <= i8::MAX as i64 {
-      		  Type::I8
-   		 } else if *v >= i16::MIN as i64 && *v <= i16::MAX as i64 {
-     		   Type::I16
-   	 	} else if *v >= i32::MIN as i64 && *v <= i32::MAX as i64 {
-       		 Type::I32
-   		 }else if *v >= i64::MIN as i64 && *v <= i64::MAX as i64{
-                Type::I64 
-            }else {
-     		   Type::I128 // i64
-   		 }
+            if *v >= i8::MIN as i64 && *v <= i8::MAX as i64{
+                Type::I8
+            }else if *v >= i16::MIN as i64 && *v <= i16::MAX as i64{
+                Type::I16
+            }else if *v >= i32::MIN as i64 && *v <= i32::MAX as i64{
+                Type::I32
+            }else if *v >= i64::MIN as i64 && *v <= i64::MAX as i64{
+                Type::I64
+            }else{
+   	    	 Type::Int
+            }
 		}
 
 		Expr::UIntLiteral(v) => {
-   		 if *v <= u8::MAX as u64 {
-      		  Type::U8
-   		 } else if *v <= u16::MAX as u64 {
-     	 	  Type::U16
-   		 } else if *v <= u32::MAX as u64 {
-       		 Type::U32
-   		 }else if *v <= u64::MAX as u64{
+   		 if *v >= u8::MIN as u64 && *v <= u8::MAX as u64{
+                Type::U8
+            }else if *v >= u16::MIN as u64 && *v <= u16::MAX as u64{
+                Type::U16
+            }else if *v >= u32::MIN as u64 && *v <= u32::MAX as u64{
+                Type::U32
+            }else if *v >= u64::MIN as u64 && *v <= u64::MAX as u64{
                 Type::U64
-            }else {
-      	 	 Type::U128 // u64
-    		}
+            }else{
+   	    	 Type::UInt
+            }
 		}
         Expr::I128Literal(_) => Type::I128,
         Expr::U128Literal(_) => Type::U128,
@@ -654,64 +656,38 @@ impl SemanticAnalyzer {
 
             func_info.return_type.unwrap_or(Type::Void)
         }
-
+        Expr::WhenExpr(_when_expr) => {
+            return Type::Str;
+        }
         Expr::BinaryOp { left, op, right } => {
-
-  	 	 let lt = self.check_expr(left);
-  	 	 let rt = self.check_expr(right);
-
-    		if lt == Type::Void || rt == Type::Void {
+ 		   let lt = self.check_expr(left);
+ 		   let rt = self.check_expr(right);
+		
+  		  if lt == Type::Void || rt == Type::Void {
       		  return Type::Void;
   		  }
 
-  		  if lt != rt {
-     		   self.error(
-         		   SemanticErrorKind::InvalidOperation,
-         		   format!(
-             		   "Invalid binary operation {:?} between {:?} and {:?}",
-            		    op, lt, rt
-         	 	  )
-        		);
-     		   return Type::Void;
-  		  }
+  		  // 1. Validação de compatibilidade
+		    // Se forem inteiros, podemos promover. Se não, precisam ser iguais.
+ 		   let working_type = if self.is_integer_type(&lt) && self.is_integer_type(&rt) {
+    		    Self::promote_int_type(&lt, &rt)
+  		  } else {
+     		   if lt != rt {
+         		   self.error(
+              		  SemanticErrorKind::InvalidOperation,
+                		format!("Invalid operation {:?} between {:?} and {:?}", op, lt, rt)
+            		);
+            return Type::Void;
+     	   }
+     		   lt
+ 		   };
 
-   		 match op {
+ 	   // 2. USO DA SUA FUNÇÃO: Define o tipo final da expressão
+ 	   // Passamos o 'working_type' (o tipo promovido) para ela decidir o retorno
+  		  self.result_type_of_binop(&working_type, op, &rt)
+		}
 
-        // operadores aritméticos
-     		   BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Percent => {
-
-       		     if !self.is_integer_type(&lt) {
-             		   self.error(
-                  		  SemanticErrorKind::InvalidOperation,
-                  		  format!("Operator {:?} requires integer types", op)
-               		 );
-              		  return Type::Void;
-        		    }	
-        	    lt
-        }
-
-        // comparações
-     	   BinOp::Greater
-      	  | BinOp::Less
-     	   | BinOp::GreaterEqual
-     	   | BinOp::LessEqual
-     	   | BinOp::DoubleEqual
-     	   | BinOp::NotEqual => {
-
-          	  if !self.is_integer_type(&lt) {
-               	 self.error(
-              	      SemanticErrorKind::InvalidOperation,
-              	   	   format!("Operator {:?} requires integer types", op)
-              	  );
-               	 return Type::Void;
-           	 }
-
-            Type::Bool
-        }
-
-        _ => Type::Void
-   	 }
-	}
+        _ => Type::Void,
 
         Expr::Identity { expr, negated: _ } => {
             let ty = self.check_expr(expr);
@@ -751,8 +727,8 @@ impl SemanticAnalyzer {
                 size: values.len(),
             }
         }
-
         Expr::Unknown => Type::Void,
+        _ => Type::Void,
     }
 }
 
@@ -791,6 +767,18 @@ fn types_compatible(&self, expected: &Type, found: &Type) -> bool {
             }
         }
     }
+    fn promote_int_type(a: &Type, b: &Type) -> Type {
+        use Type::*;
+
+  	  match (a, b) {
+      	  (I128, _) | (_, I128) => I128,
+       	 (I64, _) | (_, I64) => I64,
+        	(I32, _) | (_, I32) => I32,
+        	(I16, _) | (_, I16) => I16,
+        	(I8, _) | (_, I8) => I8,
+       	 _ => Int
+   	 }
+	}
 
     fn result_type_of_binop(&self, left: &Type, op: &BinOp, _right: &Type) -> Type {
         match op {

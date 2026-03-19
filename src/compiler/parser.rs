@@ -43,6 +43,33 @@ pub struct TypedExpr{
     pub expr: Box<Expr>,
     pub ty: Type,
 }
+#[derive(Debug, Clone)]
+pub struct TypedStmt{
+    pub kind: TypedStmtKind
+}
+#[derive(Debug, Clone)]
+pub enum TypedStmtKind {
+    VarDecl { name: String, ty: Type, value: TypedExpr, mutability: Mutability },
+    Assignment { target: String, value: TypedExpr },
+    If { condition: TypedExpr, then_branch: Vec<TypedStmt>, else_branch: Option<Vec<TypedStmt>> },
+    Return(TypedExpr),
+    Print(Vec<TypedExpr>),
+    When { target: TypedExpr, arms: Vec<TypedWhenArm> },
+    // ... outros stmts
+}
+#[derive(Debug, Clone)]
+pub struct TypedWhenExpr {
+    pub condition: TypedExpr,
+    pub arms: Vec<TypedWhenArm>, // Cada um com (valor_case, valor_retorno)
+    pub else_arm: Option<TypedExpr>,
+}
+
+
+#[derive(Debug, Clone)]
+pub struct TypedWhenArm{
+    pub value: TypedExpr,
+    pub result: TypedExpr,
+}
 
 #[derive(Debug, Clone)]
 pub enum ParserErrorKind{
@@ -56,7 +83,8 @@ pub enum ParserErrorKind{
     UnexpectedEOF,
     InvalidVariableDecl,
     DuplicateVariableError,
-    UndefinedVariable
+    UndefinedVariable,
+    MissingElseArm
 }
 #[derive(Debug, Clone)]
 pub struct ParseResult{
@@ -211,6 +239,7 @@ pub enum Expr {
         name: String,
         args: Vec<Expr>
     },
+    WhenExpr(Box<WhenExpr>),
     BinaryOp {
         left: Box<Expr>,
         op: BinOp,
@@ -218,19 +247,25 @@ pub enum Expr {
     },
     Unknown
 }
+#[derive(Debug, Clone)]
+pub struct WhenExpr {
+    pub condition: Box<Expr>,
+    pub arms: Vec<(Expr, Expr)>,      // cada arm é uma expressão, não um bloco
+    pub else_arm: Option<Box<Expr>>
+}
 
 fn infer_type_from_expr(expr: &Expr) -> Type {
     match expr {
-  	  Expr::UIntLiteral(v) => {
+  	  Expr::UIntLiteral(_) => {
       	  Type::UInt
     	}
-        Expr::IntLiteral(v) => {
+        Expr::IntLiteral(_) => {
     	    Type::Int
         }
-        Expr::I128Literal(v) => {
+        Expr::I128Literal(_) => {
             Type::I128
         }
-        Expr::U128Literal(v) => {
+        Expr::U128Literal(_) => {
             Type::U128
         }
         Expr::BoolLiteral(v) => {
@@ -250,6 +285,7 @@ fn infer_type_from_expr(expr: &Expr) -> Type {
         _ => panic!("Não consigo inferir tipo de {:?}", expr),
   	  }
 } 
+
        
 impl Parser{
     pub fn new(tokens: Vec<Token>) -> Self{
@@ -385,6 +421,9 @@ impl Parser{
         TokenKind::Indentity => {
   		  return self.parse_identity();
 		}
+        TokenKind::When => {
+            return self.parse_when_expr();
+        }
         TokenKind::UIntLiteral(v) => {
             self.advance();
             if v > u64::MAX as u128{
@@ -754,6 +793,51 @@ impl Parser{
   	  self.parse_equality()
 	}
 
+    fn parse_when_expr(&mut self) -> Result<Expr, ParserError> {
+   	 self.expect(TokenKind::When)?;
+	    let condition = self.parse_expr()?;
+    	self.expect(TokenKind::LeftBrace)?;
+  	  let mut arms = Vec::new();
+   	 let mut else_arm = None;
+
+ 	   while self.peek().kind != TokenKind::RightBrace && self.peek().kind != TokenKind::EOF {
+      	  if self.peek().kind == TokenKind::Else {
+        	    self.advance();
+          	  self.expect(TokenKind::FatArrow)?;
+           	 let expr = self.parse_expr()?;
+           	 else_arm = Some(Box::new(expr));
+          	  // consome a vírgula se tiver
+           	 if self.peek().kind == TokenKind::Comma {
+              	  self.advance();
+          	  }
+          	  break;
+      	  } else {
+          	  let value = self.parse_expr()?;
+           	 self.expect(TokenKind::FatArrow)?;
+           	 let expr = self.parse_expr()?;
+           	 arms.push((value, expr));
+            // vírgula entre arms
+            	if self.peek().kind == TokenKind::Comma {
+             	   self.advance();
+           	 }
+       	 }
+    	}
+
+  	  self.expect(TokenKind::RightBrace)?;
+
+  	  if else_arm.is_none() {
+      	  return self.error::<Expr>(
+            	ParserErrorKind::MissingElseArm,
+          	  "when expression requires an else arm".to_string()
+     	   );
+ 	   }
+
+    	Ok(Expr::WhenExpr(Box::new(WhenExpr {
+  		  condition: Box::new(condition),
+  		  arms,
+   		 else_arm,
+		})))
+	}
     fn parse_when(&mut self) -> Result<Stmt, ParserError> {
         self.expect(TokenKind::When)?;
         let condition = self.parse_expr()?;
@@ -764,6 +848,7 @@ impl Parser{
             if self.peek().kind == TokenKind::Else {
                 self.advance();
                 self.expect(TokenKind::FatArrow)?;
+                self.expect(TokenKind::LeftBrace)?;
                 let block = self.parse_block()?;
                 if else_arm.is_some() {
                     return self.error::<Stmt>(ParserErrorKind::DuplicateElseStatement, format!("Multiple else arms in when"));
@@ -773,6 +858,7 @@ impl Parser{
             } else {
                 let value = self.parse_expr()?;
                 self.expect(TokenKind::FatArrow)?;
+                self.expect(TokenKind::LeftBrace)?;
                 let block = self.parse_block()?;
                 arms.push((value, block));
             }
