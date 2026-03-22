@@ -95,6 +95,7 @@ void print_i128(__int128 n) {
                   	  Type::I16 => ("\"%\" PRId16 \"\\n\"", None, false),
                    	 Type::I32 => ("\"%\" PRId32 \"\\n\"", None, false),
                   	  Type::I64 => ("\"%\" PRId64 \"\\n\"", None, false),
+                        Type::Int => ("\"%\" PRId64 \"\\n\"", None, false),
                         Type::I128 => ("special_i128", None, false),
                         Type::U8 =>  ("\"%\" PRIu8 \"\\n\"", None, false),
                         Type::U16 => ("\"%\" PRIu16 \"\\n\"", None, false),
@@ -137,6 +138,7 @@ void print_i128(__int128 n) {
                         Type::I32 => ("\"%\" PRId32 \"\\n\"", None, false),
 
            			 Type::I64 => ("\"%\" PRId64 \"\\n\"", None, false),
+                        Type::Int => ("\"%\" PRId64 \"\\n\"", None, false),
                         
                         Type::I128 => ("special_i128", None, false),
                         
@@ -157,6 +159,58 @@ void print_i128(__int128 n) {
      	   _ => ("\"%d\\n\"", None, false)
         }
     }
+    fn type_from_expr(&self, expr: &Expr) -> Type{
+        match expr{
+            Expr::I128Literal(_) => Type::I128,
+            Expr::U128Literal(_) => Type::U128,
+            Expr::Int(_) => Type::Int,
+            Expr::IntLiteral(v) =>{
+                if *v >= i8::MIN as i64 && *v <= i8::MAX as i64{
+                    Type::I8
+                }else if *v >= i16::MIN as i64 && *v <= i16::MAX as i64{
+                    Type::I16
+                }else if *v >= i32::MIN as i64 && *v <= i32::MAX as i64{
+                    Type::I32
+                }else{
+                    Type::I64
+                }
+            }
+            Expr::UIntLiteral(v) => {
+                if *v >= u8::MIN as u64 && *v <= u8::MAX as u64{
+                    Type::U8
+                }else if *v >= u16::MIN as u64 && *v <= u16::MAX as u64{
+                    Type::U16
+                }else if *v >= u32::MIN as u64 && *v <= u32::MAX as u64{
+                    Type::U32
+                }else{
+                    Type::U64
+                }
+            }
+            Expr::BoolLiteral(_) => Type::Bool,
+            Expr::Ident(name) => {
+                let symbols = self.symbols.borrow();
+                if let Some(ty) = symbols.get(name){
+                    return ty.clone();
+                }
+            }
+            Expr::BinaryOp { left, op, ..} => {
+                if self.is_comparison_op(op){
+                    Type::Bool
+                }else{
+                    match op{
+                      &BinOp::Add |
+                      &BinOp::Mul |
+                      &BinOp::Div |
+                      &BinOp::Sub |
+                      &BinOp::Percent |
+                      &BinOp::CompoundAdd | &BinOp::CompoundSub | &BinOp::CompoundDiv | &BinOp::CompoundMul => self.type_from_expr(left)
+                      _ => todo!()
+                    }
+                }
+            }
+            _ => todo!()
+        }
+    }
     
     fn gen_stmt(&mut self, stmt: &Stmt) -> String {
         match stmt {
@@ -173,7 +227,7 @@ void print_i128(__int128 n) {
                 }else if fmt == "void_call"{
                     code.push_str(&format!("{};", val));
                 }else if is_ternary {
-        	  	  code.push_str(&format!("printf(\"%s\\n\", ({	}) ? \"true\" : \"false\"); ", val));
+        	  	  code.push_str(&format!("printf(\"%s\\n\", ({}) ? \"true\" : \"false\"); ", val));
        		 } else {
          	   	code.push_str(&format!("printf({}, {}); ", fmt, val));
        		 }
@@ -236,7 +290,7 @@ void print_i128(__int128 n) {
             Stmt::Continue => "continue;".to_string(),
             Stmt::FuncDecl(f) => {
                 let old_symbols = self.symbols.replace(HashMap::new());
-                let ret_ty = Self::gen_type(&f.return_type.as_ref().unwrap_or(&Type::Void));
+                let mut ret_ty = Self::gen_type(&f.return_type.as_ref().unwrap_or(&Type::Void));
                 
                 // Correção do Erro E0401: Usamos Codegen:: em vez de Self dentro do map
                 let params: Vec<String> = f.params.iter()
@@ -252,7 +306,10 @@ void print_i128(__int128 n) {
                     body.push('\n');
                 }
                 let has_return = f.body.iter().any(|s| matches!(s, Stmt::Return(_)));
-                if f.name == "main" && matches!(f.return_type, Some(Type::Int)) && !has_return{
+                if f.name == "main"{
+                    ret_ty = "int".to_string();
+                }
+                if f.name == "main" && matches!(f.return_type, Some(Type::Int) | Some(Type::I64)) && !has_return{
                     body.push_str("    return 0;\n");
                 }
                 self.functions.borrow_mut().insert(f.name.clone(), f.return_type.clone().unwrap_or(Type::Void));
@@ -448,8 +505,44 @@ void print_i128(__int128 n) {
        			 }
       			  _ => false
   			  };
+                let ty_tmp = {
+  				  if let Some((first_val, _)) = w.arms.first() {
+      				  match first_val {
+           				 Expr::IntLiteral(v) => {
+              				  if *v >= i32::MIN as i64 && *v <= i32::MAX as i64 {
+                  				  "int32_t".to_string()
+               				 } else {
+                   				 "int64_t".to_string()
+               			 	}
+          		  		}
+                            Expr::UIntLiteral(v) => {
+                                if *v >= u32::MIN as u64 && *v <= u32::MAX as u64 {
+                  				  "uint32_t".to_string()
+               				 } else {
+                   				 "uint64_t".to_string()
+               			 	}
+                            }
+                            Expr::BoolLiteral(_) => {
+                                "bool".to_string()
+                            }
+                            Expr::StringLiteral(_) => {
+                                "char*".to_string()
+                            }
+                            Expr::BinaryOp { left, op, .. } => {
+                                if self.is_comparison_op(op) {
+                                    "bool".to_string()
+                                }else{
+                                    Self::gen_type(&infer_type_from_expr(left))
+                                }
+                            }
+                            _ => "int".to_string()
+      				  }
+  		    	  } else {
+       				 "int".to_string()
+  				  }
+                };
 
-  			  code.push_str(&format!("\nint {};", tmp));
+  			  code.push_str(&format!("\n{} {};", ty_tmp, tmp));
 
   	 		 for (i, (value, expr)) in w.arms.iter().enumerate() {
        			 let val = self.gen_expr(value);
@@ -504,7 +597,7 @@ void print_i128(__int128 n) {
             Type::Bool => "bool".to_string(),
             Type::Str => "char*".to_string(),
             Type::Void => "void".to_string(),
-            Type::Int => "int".to_string(),
+            Type::Int => "int64_t".to_string(),
             _ => "int".to_string(), 
         }
     }

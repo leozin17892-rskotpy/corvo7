@@ -4,6 +4,9 @@ use corvo7::compiler::semantic::SemanticAnalyzer;
 use corvo7::compiler::codegen::Codegen;
 use corvo7::compiler::codegenllc::CodegenLLC;
 use corvo7::compiler::lowering::Lowering;
+use corvo7::compiler::copy_propagation::run as lrun;
+use corvo7::compiler::dce::eliminate_dead_temps as dce_clean;
+
 
 use std::path::Path;
 use std::fs;
@@ -69,7 +72,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 	} else {
   	  let codegen = CodegenLLC::new();
  	   let mut lower = Lowering::new();
-   	 let lowered = lower.lower_program(&stmts, "main");
+   	 let mut lowered = lower.lower_program(&stmts, "main");
+        lrun(&mut lowered);
+        dce_clean(&mut lowered);
   	  codegen.generate(&lowered)
 	};
 
@@ -89,7 +94,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     .arg("-o")
     .arg(&output_exe)
     .status()?;
-    let otimization_level = if cli.O <= 5 { cli.O } else { 2 };
+    let otimization_level = if cli.O < 5 { cli.O } else { 2 };
     let mut extra_flag = "";
     if otimization_level >= 4{
         extra_flag = "-march=native";

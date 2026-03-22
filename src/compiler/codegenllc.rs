@@ -49,11 +49,11 @@ impl CodegenLLC {
               	  | Instr::Less { dst, .. }
                	 | Instr::LessEq { dst, .. }
                	 | Instr::Load { dst, .. } => {
-                    declared_temps.insert((dst.0, dst.clone().1));
+                    declared_temps.insert((dst.id, dst.ty.clone()));
                 }
 
                 Instr::Store { var, src } => {
-                    declared_vars.insert((var.0, src.clone().1));
+                    declared_vars.insert((var.0, src.ty.clone()));
                 }
 
                 _ => {}
@@ -71,12 +71,12 @@ impl CodegenLLC {
             Type::I16 => "int16_t",
             Type::I32 => "int32_t",
             Type::I64 => "int64_t",
-            Type::I128 => "int128_t",
+            Type::I128 => "__int128",
             Type::U8 => "uint8_t",
             Type::U16 => "uint16_t",
             Type::U32 => "uint32_t",
             Type::U64 => "uint64_t",
-            Type::U128 => "unsigned int128_t",
+            Type::U128 => "unsigned __int128",
             Type::Vec{ .. } => "brh",
             Type::Void => "void",
             Type::Str => "char*",
@@ -87,8 +87,8 @@ impl CodegenLLC {
     }
 
     for t in &declared_temps {
-        let fnt = match t.1{
-            Type::Int => "int64_t",
+        let fnt = match t.1 {
+            Type::Int => "int",
             Type::Bool => "bool",
             Type::UInt => "uint64_t",
             Type::I8 => "int8_t",
@@ -114,70 +114,78 @@ impl CodegenLLC {
 
     // 🔹 2ª passada — emitir corpo
     for block in &fun.blocks {
-        writeln!(c, "{}:", block.label.0).unwrap();
+        writeln!(c, "L{}:", block.label.0).unwrap();
 
         for instr in &block.instructions {
             match instr {
                 Instr::ConstInt { dst, value } => {
-                    writeln!(c, "    t{} = {};", dst.0, value).unwrap();
+                    writeln!(c, "    t{} = {};", dst.id, value).unwrap();
                 }
 
                 Instr::ConstBool { dst, value } => {
-                    writeln!(c, "    t{} = {};", dst.0, value).unwrap();
+                    writeln!(c, "    t{} = {};", dst.id, value).unwrap();
                 }
 
                 Instr::Store { var, src } => {
-                    writeln!(c, "    v{} = t{};", var.0, src.0).unwrap();
+                    writeln!(c, "    v{} = t{};", var.0, src.id).unwrap();
                 }
 
                 Instr::Add { dst, lhs, rhs } => {
-                    writeln!(c, "    t{} = t{} + t{};", dst.0, lhs.0, rhs.0).unwrap();
+                    writeln!(c, "    t{} = t{} + t{};", dst.id, lhs.id, rhs.id).unwrap();
                 }
 
                 Instr::Greater { dst, lhs, rhs } => {
-                    writeln!(c, "    t{} = t{} > t{};", dst.0, lhs.0, rhs.0).unwrap();
+                    writeln!(c, "    t{} = t{} > t{};", dst.id, lhs.id, rhs.id).unwrap();
                 }
 
                 Instr::GreaterEq { dst, lhs, rhs } => {
-                    writeln!(c, "    t{} = t{} >= t{};", dst.0, lhs.0, rhs.0).unwrap();
+                    writeln!(c, "    t{} = t{} >= t{};", dst.id, lhs.id, rhs.id).unwrap();
                 }
 
                 Instr::Less { dst, lhs, rhs } => {
-                    writeln!(c, "    t{} = t{} < t{};", dst.0, lhs.0, rhs.0).unwrap();
+                    writeln!(c, "    t{} = t{} < t{};", dst.id, lhs.id, rhs.id).unwrap();
                 }
 
                 Instr::LessEq { dst, lhs, rhs } => {
-                    writeln!(c, "    t{} = t{} <= t{};", dst.0, lhs.0, rhs.0).unwrap();
+                    writeln!(c, "    t{} = t{} <= t{};", dst.id, lhs.id, rhs.id).unwrap();
                 }
 
                 Instr::Load { dst, id } => {
-                    writeln!(c, "    t{} = v{};", dst.0, id.0).unwrap();
+                    writeln!(c, "    t{} = v{};", dst.id, id.0).unwrap();
                 }
                 Instr::Print { temp } => {
-                    let fmt = match &temp.1{
+                    let fmt = match &temp.ty{
                         Type::Int => "%d\\n",
+                        Type::I64 => "\"%\" PRId64 \"\\n\"",
+                        Type::I32 => "\"%\" PRId32 \"\\n\"",
+                        Type::I16 => "\"%\" PRId16 \"\\n\"",
+                        Type::I8 => "\"%\" PRId8 \"\\n\"",
+                        Type::UInt => "\"%\" PRIu64 \"\\n\"",
+                        Type::U64 => "\"%\" PRIu64 \"\\n\"",
+                        Type::U32 => "\"%\" PRIu32 \"\\n\"",
+                        Type::U16 => "\"%\" PRIu16 \"\\n\"",
+                        Type::U8 => "\"%\" PRIu8 \"\\n\"",
                         Type::Str => "%s\\n",
                         Type::Bool => "%bool",
                         _ => "%ld\\n"
                     };
-                    match fmt{
-                        "%d\\n" | "%s\\n" => writeln!(c, "	printf(\"{}\", t{});", fmt, temp.0).unwrap(),
-                        "%bool" => writeln!(c, "	printf(\"%s\\n\", t{} ? \"true\" : \"false\");", temp.0).unwrap(),
-                        "%ld\\n" => writeln!(c, "	printf(\"{}\", t{});", fmt, temp.0).unwrap(),
-                        _ => unreachable!()
+                    if fmt == "%bool"{
+                        writeln!(c, "    printf(\"%s\\n\", (t{}) ? \"true\" : \"false\");", temp.id).unwrap();
+                    }else{
+                        writeln!(c, "    printf(\"{}\", t{});", fmt, temp.id).unwrap();
                     }
                 }
 
                 Instr::Jump(label) => {
-                    writeln!(c, "    goto {};", label.0).unwrap();
+                    writeln!(c, "    goto L{};", label.0).unwrap();
                 }
 
                 Instr::JumpIfFalse { cond, label } => {
-                    writeln!(c, "    if (!t{}) goto {};", cond.0, label.0).unwrap();
+                    writeln!(c, "    if (!t{}) goto L{};", cond.id, label.0).unwrap();
                 }
 
                 Instr::Return(Some(temp)) => {
-                    writeln!(c, "    return t{};", temp.0).unwrap();
+                    writeln!(c, "    return t{};", temp.id).unwrap();
                 }
 
                 Instr::Return(None) => {

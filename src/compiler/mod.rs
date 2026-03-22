@@ -5,3 +5,5 @@ pub mod ir;
 pub mod lowering;
 pub mod codegen;
 pub mod codegenllc;
+pub mod copy_propagation;
+pub mod dce;

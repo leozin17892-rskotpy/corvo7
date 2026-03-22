@@ -185,6 +185,11 @@ pub enum Type {
     },
     Unknown
 }
+impl Type {
+    pub fn is_int(&self) -> bool {
+        matches!(self, Type::Int | Type::I8 | Type::I16 | Type::I32 | Type::I64 | Type::I128 | Type::UInt | Type::U8 | Type::U16 | Type::U32 | Type::U64 | Type::U128)
+    }
+}
 #[derive(Debug, Clone)]
 pub enum BinOp {
     Add,
@@ -254,7 +259,7 @@ pub struct WhenExpr {
     pub else_arm: Option<Box<Expr>>
 }
 
-fn infer_type_from_expr(expr: &Expr) -> Type {
+pub fn infer_type_from_expr(expr: &Expr) -> Type {
     match expr {
   	  Expr::UIntLiteral(_) => {
       	  Type::UInt
